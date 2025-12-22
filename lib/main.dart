@@ -1,46 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-
-void main() {
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Calculadora de Rutas',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.light,
-        scaffoldBackgroundColor: const Color(0xFFFAFAFA),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.black,
-          brightness: Brightness.light,
-        ),
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF121212),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.white,
-          brightness: Brightness.dark,
-        ),
-      ),
-      themeMode: ThemeMode.system,
-      home: const RouteCalculatorPage(),
-    );
-  }
-}
+import 'global_routes_page.dart';
+import 'package:provider/provider.dart';
 
 class RouteCalculatorPage extends StatefulWidget {
   const RouteCalculatorPage({super.key});
@@ -319,9 +285,25 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final themeNotifier = Provider.of<ThemeNotifier>(context);
 
     return Scaffold(
+      backgroundColor: themeNotifier.isDarkMode
+          ? Colors.black
+          : Colors.white,
+      appBar: AppBar(
+        title: const Text('Calculadora de Rutas'),
+        actions: [
+          IconButton(
+            icon: Icon(
+              themeNotifier.isDarkMode ? Icons.wb_sunny : Icons.nightlight_round,
+            ),
+            onPressed: () {
+              themeNotifier.toggleTheme();
+            },
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Stack(
           children: [
@@ -436,10 +418,10 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                               ? null
                               : _calculateRoute,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: isDark
+                            backgroundColor: themeNotifier.isDarkMode
                                 ? Colors.white
                                 : Colors.black,
-                            foregroundColor: isDark
+                            foregroundColor: themeNotifier.isDarkMode
                                 ? Colors.black
                                 : Colors.white,
                             elevation: 0,
@@ -451,7 +433,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                                   height: 20,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    color: isDark ? Colors.black : Colors.white,
+                                    color: themeNotifier.isDarkMode ? Colors.black : Colors.white,
                                   ),
                                 )
                               : const Text(
@@ -507,8 +489,9 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                     ),
                     children: [
                       TileLayer(
-                        urlTemplate:
-                            'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+                        urlTemplate: themeNotifier.isDarkMode
+                            ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+                            : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
                         subdomains: const ['a', 'b', 'c', 'd'],
                         userAgentPackageName: 'com.routecalculator.app',
                         retinaMode: RetinaMode.isHighDensity(context),
@@ -560,7 +543,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                       child: Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: isDark
+                          color: themeNotifier.isDarkMode
                               ? Colors.black.withOpacity(0.8)
                               : Colors.white.withOpacity(0.95),
                           borderRadius: BorderRadius.circular(12),
@@ -585,7 +568,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                                       style: TextStyle(
                                         fontSize: 24,
                                         fontWeight: FontWeight.bold,
-                                        color: isDark
+                                        color: themeNotifier.isDarkMode
                                             ? Colors.white
                                             : Colors.black,
                                       ),
@@ -614,7 +597,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                                   },
                                   icon: Icon(
                                     _isPlaying ? Icons.pause : Icons.play_arrow,
-                                    color: isDark ? Colors.white : Colors.black,
+                                    color: themeNotifier.isDarkMode ? Colors.white : Colors.black,
                                   ),
                                 ),
 
@@ -626,7 +609,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                                       style: TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.bold,
-                                        color: isDark
+                                        color: themeNotifier.isDarkMode
                                             ? Colors.white
                                             : Colors.black,
                                       ),
@@ -664,16 +647,119 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                       _cancelNotification();
                     });
                   },
-                  backgroundColor: isDark ? Colors.white : Colors.black,
+                  backgroundColor: themeNotifier.isDarkMode ? Colors.white : Colors.black,
                   child: Icon(
                     Icons.close,
-                    color: isDark ? Colors.black : Colors.white,
+                    color: themeNotifier.isDarkMode ? Colors.black : Colors.white,
                   ),
                 ),
               ),
+
+            Align(
+              alignment: Alignment.bottomLeft,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: themeNotifier.isDarkMode
+                        ? Colors.white.withOpacity(0.2)
+                        : Colors.black.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(50),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8.0,
+                    vertical: 4.0,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const GlobalRoutesPage(),
+                            ),
+                          );
+                        },
+                        icon: Icon(
+                          Icons.public,
+                          color: themeNotifier.isDarkMode ? Colors.white : Colors.black,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () {
+                          Provider.of<ThemeNotifier>(context, listen: false)
+                              .toggleTheme();
+                        },
+                        icon: Icon(
+                          themeNotifier.isDarkMode ? Icons.dark_mode : Icons.light_mode,
+                          color: themeNotifier.isDarkMode ? Colors.white : Colors.black,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () {
+                          print('Botón de Usuario presionado');
+                          // Lógica para el botón de Usuario
+                        },
+                        icon: Icon(
+                          Icons.person,
+                          color: themeNotifier.isDarkMode ? Colors.white : Colors.black,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class ThemeNotifier extends ChangeNotifier {
+  bool _isDarkMode = false;
+
+  bool get isDarkMode => _isDarkMode;
+
+  void toggleTheme() {
+    _isDarkMode = !_isDarkMode;
+    notifyListeners();
+  }
+}
+
+void main() {
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => ThemeNotifier(),
+      child: const MyApp(),
+    ),
+  );
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final themeNotifier = Provider.of<ThemeNotifier>(context);
+
+    return MaterialApp(
+      theme: ThemeData.light(),
+      darkTheme: ThemeData.dark(),
+      themeMode: themeNotifier.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+      home: const RouteCalculatorPage(),
     );
   }
 }
