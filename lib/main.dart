@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'global_routes_page.dart';
 import 'package:provider/provider.dart';
+import 'user_profile_page.dart';
 
 class RouteCalculatorPage extends StatefulWidget {
   const RouteCalculatorPage({super.key});
@@ -64,7 +65,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
 
   Future<void> _showNotification() async {
     const androidDetails = AndroidNotificationDetails(
-      'route_channel_id', // Cambiado de 'play_notification_channel'
+      'route_channel_id',
       'Ruta Activa',
       channelDescription: 'Notificaciones durante la navegación de ruta',
       importance: Importance.high,
@@ -91,7 +92,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
   @override
   void dispose() {
     _destinationController.dispose();
-    _cancelNotification(); // Cancelar notificación al cerrar la app
+    _cancelNotification();
     super.dispose();
   }
 
@@ -190,7 +191,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     });
 
     try {
-      // Obtener coordenadas del destino
       final destination = await _getCoordinatesFromAddress(
         _destinationController.text,
       );
@@ -288,26 +288,10 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     final themeNotifier = Provider.of<ThemeNotifier>(context);
 
     return Scaffold(
-      backgroundColor: themeNotifier.isDarkMode
-          ? Colors.black
-          : Colors.white,
-      appBar: AppBar(
-        title: const Text('Calculadora de Rutas'),
-        actions: [
-          IconButton(
-            icon: Icon(
-              themeNotifier.isDarkMode ? Icons.wb_sunny : Icons.nightlight_round,
-            ),
-            onPressed: () {
-              themeNotifier.toggleTheme();
-            },
-          ),
-        ],
-      ),
+      backgroundColor: themeNotifier.isDarkMode ? Colors.black : Colors.white,
       body: SafeArea(
         child: Stack(
           children: [
-            // Mostrar el formulario si no hay puntos de ruta
             if (_routePoints == null || _routePoints!.isEmpty)
               SingleChildScrollView(
                 padding: const EdgeInsets.all(24.0),
@@ -327,7 +311,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                       ),
                       const SizedBox(height: 48),
 
-                      // Punto de Origen
                       Text(
                         'PUNTO DE ORIGEN',
                         style: TextStyle(
@@ -433,7 +416,9 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                                   height: 20,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    color: themeNotifier.isDarkMode ? Colors.black : Colors.white,
+                                    color: themeNotifier.isDarkMode
+                                        ? Colors.black
+                                        : Colors.white,
                                   ),
                                 )
                               : const Text(
@@ -597,7 +582,9 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                                   },
                                   icon: Icon(
                                     _isPlaying ? Icons.pause : Icons.play_arrow,
-                                    color: themeNotifier.isDarkMode ? Colors.white : Colors.black,
+                                    color: themeNotifier.isDarkMode
+                                        ? Colors.white
+                                        : Colors.black,
                                   ),
                                 ),
 
@@ -647,10 +634,14 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                       _cancelNotification();
                     });
                   },
-                  backgroundColor: themeNotifier.isDarkMode ? Colors.white : Colors.black,
+                  backgroundColor: themeNotifier.isDarkMode
+                      ? Colors.white
+                      : Colors.black,
                   child: Icon(
                     Icons.close,
-                    color: themeNotifier.isDarkMode ? Colors.black : Colors.white,
+                    color: themeNotifier.isDarkMode
+                        ? Colors.black
+                        : Colors.white,
                   ),
                 ),
               ),
@@ -691,29 +682,43 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                         },
                         icon: Icon(
                           Icons.public,
-                          color: themeNotifier.isDarkMode ? Colors.white : Colors.black,
+                          color: themeNotifier.isDarkMode
+                              ? Colors.white
+                              : Colors.black,
                         ),
                       ),
                       const SizedBox(width: 8),
                       IconButton(
                         onPressed: () {
-                          Provider.of<ThemeNotifier>(context, listen: false)
-                              .toggleTheme();
+                          Provider.of<ThemeNotifier>(
+                            context,
+                            listen: false,
+                          ).toggleTheme();
                         },
                         icon: Icon(
-                          themeNotifier.isDarkMode ? Icons.dark_mode : Icons.light_mode,
-                          color: themeNotifier.isDarkMode ? Colors.white : Colors.black,
+                          themeNotifier.isDarkMode
+                              ? Icons.dark_mode
+                              : Icons.light_mode,
+                          color: themeNotifier.isDarkMode
+                              ? Colors.white
+                              : Colors.black,
                         ),
                       ),
                       const SizedBox(width: 8),
                       IconButton(
                         onPressed: () {
-                          print('Botón de Usuario presionado');
-                          // Lógica para el botón de Usuario
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const UserProfilePage(),
+                            ),
+                          );
                         },
                         icon: Icon(
                           Icons.person,
-                          color: themeNotifier.isDarkMode ? Colors.white : Colors.black,
+                          color: themeNotifier.isDarkMode
+                              ? Colors.white
+                              : Colors.black,
                         ),
                       ),
                     ],
