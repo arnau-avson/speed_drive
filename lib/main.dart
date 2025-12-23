@@ -8,6 +8,33 @@ import 'package:http/http.dart' as http;
 import 'global_routes_page.dart';
 import 'package:provider/provider.dart';
 import 'user_profile_page.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class RecentDestination {
+  final String name;
+  final double latitude;
+  final double longitude;
+  double? distanceFromCurrent;
+
+  RecentDestination({
+    required this.name,
+    required this.latitude,
+    required this.longitude,
+    this.distanceFromCurrent,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {'name': name, 'latitude': latitude, 'longitude': longitude};
+  }
+
+  factory RecentDestination.fromMap(Map<String, dynamic> map) {
+    return RecentDestination(
+      name: map['name'],
+      latitude: map['latitude'],
+      longitude: map['longitude'],
+    );
+  }
+}
 
 class RouteCalculatorPage extends StatefulWidget {
   const RouteCalculatorPage({super.key});
@@ -19,6 +46,7 @@ class RouteCalculatorPage extends StatefulWidget {
 class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
   final _formKey = GlobalKey<FormState>();
   final _destinationController = TextEditingController();
+  final _editDestinationController = TextEditingController();
   final MapController _mapController = MapController();
   final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
@@ -26,17 +54,25 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
   bool _isLoading = false;
   bool _isLoadingLocation = true;
   bool _isPlaying = false;
+  bool _showRecentDestinations = false;
   Map<String, dynamic>? _result;
   List<LatLng>? _routePoints;
   String? _error;
   Position? _currentPosition;
   String? _currentLocationName;
 
+  List<RecentDestination> _recentDestinations = [];
+  RecentDestination? _destinationToEdit;
+
+  static const String _recentDestinationsKey = 'recent_destinations';
+  static const int _maxRecentDestinations = 5;
+
   @override
   void initState() {
     super.initState();
     _initializeNotifications();
     _setCurrentLocationAsOrigin();
+    _loadRecentDestinations();
   }
 
   Future<void> _initializeNotifications() async {
@@ -54,7 +90,9 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
   Future<void> _requestNotificationPermission() async {
     final AndroidFlutterLocalNotificationsPlugin? androidPlugin =
         _flutterLocalNotificationsPlugin
-            .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
 
     if (androidPlugin != null) {
       await androidPlugin.requestNotificationsPermission();
@@ -90,8 +128,333 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
   @override
   void dispose() {
     _destinationController.dispose();
+    _editDestinationController.dispose();
     _cancelNotification();
     super.dispose();
+  }
+
+  // Guardar destinos recientes en SharedPreferences
+  Future<void> _saveRecentDestinations() async {
+    final prefs = await SharedPreferences.getInstance();
+    final destinationsJson = _recentDestinations
+        .map((dest) => json.encode(dest.toMap()))
+        .toList();
+    await prefs.setStringList(_recentDestinationsKey, destinationsJson);
+  }
+
+  // Cargar destinos recientes desde SharedPreferences
+  Future<void> _loadRecentDestinations() async {
+    final prefs = await SharedPreferences.getInstance();
+    final destinationsJson = prefs.getStringList(_recentDestinationsKey) ?? [];
+
+    final destinations = destinationsJson.map((jsonString) {
+      final map = json.decode(jsonString) as Map<String, dynamic>;
+      return RecentDestination.fromMap(map);
+    }).toList();
+
+    setState(() {
+      _recentDestinations = destinations;
+    });
+  }
+
+  // Añadir un nuevo destino a la lista de recientes
+  Future<void> _addRecentDestination(
+    String name,
+    double lat,
+    double lon,
+  ) async {
+    // Verificar si ya existe un destino con el mismo nombre o coordenadas
+    final existingIndex = _recentDestinations.indexWhere(
+      (dest) =>
+          dest.name.toLowerCase() == name.toLowerCase() ||
+          (dest.latitude == lat && dest.longitude == lon),
+    );
+
+    if (existingIndex != -1) {
+      // Mover al principio si ya existe
+      final existing = _recentDestinations.removeAt(existingIndex);
+      _recentDestinations.insert(0, existing);
+    } else {
+      // Añadir nuevo destino al principio
+      final newDestination = RecentDestination(
+        name: name,
+        latitude: lat,
+        longitude: lon,
+      );
+      _recentDestinations.insert(0, newDestination);
+
+      // Limitar el número de destinos recientes
+      if (_recentDestinations.length > _maxRecentDestinations) {
+        _recentDestinations = _recentDestinations.sublist(
+          0,
+          _maxRecentDestinations,
+        );
+      }
+    }
+
+    await _saveRecentDestinations();
+    await _calculateDistancesForRecentDestinations();
+  }
+
+  // Eliminar un destino reciente
+  Future<void> _removeRecentDestination(int index) async {
+    setState(() {
+      _recentDestinations.removeAt(index);
+    });
+    await _saveRecentDestinations();
+  }
+
+  // Renombrar un destino reciente
+  Future<void> _renameRecentDestination(int index, String newName) async {
+    if (newName.trim().isEmpty) return;
+
+    setState(() {
+      _recentDestinations[index] = RecentDestination(
+        name: newName.trim(),
+        latitude: _recentDestinations[index].latitude,
+        longitude: _recentDestinations[index].longitude,
+        distanceFromCurrent: _recentDestinations[index].distanceFromCurrent,
+      );
+    });
+    await _saveRecentDestinations();
+  }
+
+  // Calcular distancias desde la ubicación actual para todos los destinos recientes
+  Future<void> _calculateDistancesForRecentDestinations() async {
+    if (_currentPosition == null) return;
+
+    const Distance distance = Distance();
+
+    for (int i = 0; i < _recentDestinations.length; i++) {
+      final dest = _recentDestinations[i];
+      final distanceInMeters = distance(
+        LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+        LatLng(dest.latitude, dest.longitude),
+      );
+
+      _recentDestinations[i] = RecentDestination(
+        name: dest.name,
+        latitude: dest.latitude,
+        longitude: dest.longitude,
+        distanceFromCurrent: distanceInMeters / 1000, // Convertir a kilómetros
+      );
+    }
+
+    setState(() {});
+  }
+
+  // Diálogo para editar nombre de destino
+  void _showEditDestinationDialog(int index) {
+    _editDestinationController.text = _recentDestinations[index].name;
+    _destinationToEdit = _recentDestinations[index];
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        final themeNotifier = Provider.of<ThemeNotifier>(context);
+        return AlertDialog(
+          backgroundColor: themeNotifier.isDarkMode
+              ? Colors.grey.shade900
+              : Colors.white,
+          title: Text(
+            'Editar nombre del destino',
+            style: TextStyle(
+              color: themeNotifier.isDarkMode ? Colors.white : Colors.black,
+            ),
+          ),
+          content: TextField(
+            controller: _editDestinationController,
+            decoration: InputDecoration(
+              hintText: 'Nuevo nombre',
+              hintStyle: TextStyle(color: Colors.grey.shade600),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              contentPadding: const EdgeInsets.all(12),
+            ),
+            style: TextStyle(
+              color: themeNotifier.isDarkMode ? Colors.white : Colors.black,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Cancelar',
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                _renameRecentDestination(
+                  index,
+                  _editDestinationController.text,
+                );
+                Navigator.pop(context);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text(
+                'Guardar',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Widget para mostrar destinos recientes
+  Widget _buildRecentDestinations() {
+    final themeNotifier = Provider.of<ThemeNotifier>(context);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      height: _showRecentDestinations ? 200 : 0,
+      child: SingleChildScrollView(
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: themeNotifier.isDarkMode
+                ? Colors.grey.shade900
+                : Colors.grey.shade50,
+            borderRadius: const BorderRadius.only(
+              bottomLeft: Radius.circular(16),
+              bottomRight: Radius.circular(16),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Destinos recientes',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: themeNotifier.isDarkMode
+                          ? Colors.white
+                          : Colors.black,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      setState(() {
+                        _showRecentDestinations = false;
+                      });
+                    },
+                    icon: const Icon(Icons.close, size: 20),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (_recentDestinations.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    'No hay destinos recientes',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                    textAlign: TextAlign.center,
+                  ),
+                )
+              else
+                ..._recentDestinations.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final destination = entry.value;
+                  return GestureDetector(
+                    onTap: () {
+                      _destinationController.text = destination.name;
+                      _calculateRouteFromDestination(destination);
+                    },
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: themeNotifier.isDarkMode
+                            ? Colors.grey.shade800
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: themeNotifier.isDarkMode
+                              ? Colors.grey.shade700
+                              : Colors.grey.shade200,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        destination.name,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                          color: themeNotifier.isDarkMode
+                                              ? Colors.white
+                                              : Colors.black,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      onPressed: () =>
+                                          _showEditDestinationDialog(index),
+                                      icon: Icon(
+                                        Icons.edit,
+                                        size: 16,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                    IconButton(
+                                      onPressed: () =>
+                                          _removeRecentDestination(index),
+                                      icon: Icon(
+                                        Icons.delete,
+                                        size: 16,
+                                        color: Colors.red.shade600,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                  ],
+                                ),
+                                if (destination.distanceFromCurrent != null)
+                                  Text(
+                                    '${destination.distanceFromCurrent!.toStringAsFixed(1)} km desde tu ubicación',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<String> _getLocationName(double lat, double lon) async {
@@ -108,7 +471,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final address = data['address'];
-        
+
         // Intentar obtener la ubicación más específica disponible
         if (address['road'] != null) {
           return address['road'];
@@ -144,18 +507,21 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
       print(
         'Ubicación obtenida: Latitud ${position.latitude}, Longitud ${position.longitude}',
       );
-      
+
       // Obtener el nombre de la ubicación
       final locationName = await _getLocationName(
         position.latitude,
         position.longitude,
       );
-      
+
       setState(() {
         _currentPosition = position;
         _currentLocationName = locationName;
         _isLoadingLocation = false;
       });
+
+      // Calcular distancias para destinos recientes
+      await _calculateDistancesForRecentDestinations();
     } catch (e) {
       print('Error al obtener ubicación: $e');
       setState(() {
@@ -239,10 +605,96 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
         _destinationController.text,
       );
 
+      // Guardar como destino reciente
+      await _addRecentDestination(
+        _destinationController.text,
+        destination['lat'],
+        destination['lon'],
+      );
+
       final lat1 = _currentPosition!.latitude;
       final lon1 = _currentPosition!.longitude;
       final lat2 = destination['lat'];
       final lon2 = destination['lon'];
+
+      final url = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/$lon1,$lat1;$lon2,$lat2?overview=full&geometries=geojson',
+      );
+
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        if (data['code'] == 'Ok' &&
+            data['routes'] != null &&
+            data['routes'].isNotEmpty) {
+          final route = data['routes'][0];
+          final durationSeconds = route['duration'] as num;
+          final distanceMeters = route['distance'] as num;
+          final geometry = route['geometry'];
+
+          final hours = (durationSeconds / 3600).floor();
+          final minutes = ((durationSeconds % 3600) / 60).floor();
+          final distanceKm = distanceMeters / 1000;
+          final avgSpeed = (distanceKm / (durationSeconds / 3600));
+
+          final List<LatLng> points = [];
+          if (geometry != null && geometry['coordinates'] != null) {
+            for (var coord in geometry['coordinates']) {
+              points.add(LatLng(coord[1], coord[0]));
+            }
+          }
+
+          setState(() {
+            _result = {
+              'hours': hours,
+              'minutes': minutes,
+              'distance': distanceKm,
+              'avgSpeed': avgSpeed,
+            };
+            _routePoints = points;
+            _isLoading = false;
+          });
+
+          if (points.isNotEmpty) {
+            _fitBounds(points);
+          }
+        } else {
+          throw Exception(
+            'No se pudo calcular la ruta: ${data['message'] ?? "Sin mensaje"}',
+          );
+        }
+      } else {
+        throw Exception('Error HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      setState(() {
+        _error = 'Error: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  // Nueva función para calcular ruta desde un destino reciente
+  Future<void> _calculateRouteFromDestination(
+    RecentDestination destination,
+  ) async {
+    if (_currentPosition == null) return;
+
+    setState(() {
+      _isLoading = true;
+      _error = null;
+      _result = null;
+      _routePoints = null;
+      _showRecentDestinations = false;
+    });
+
+    try {
+      final lat1 = _currentPosition!.latitude;
+      final lon1 = _currentPosition!.longitude;
+      final lat2 = destination.latitude;
+      final lon2 = destination.longitude;
 
       final url = Uri.parse(
         'https://router.project-osrm.org/route/v1/driving/$lon1,$lat1;$lon2,$lat2?overview=full&geometries=geojson',
@@ -337,305 +789,369 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
         child: Stack(
           children: [
             if (_routePoints == null || _routePoints!.isEmpty)
-              SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 60),
-                      
-                      // Título principal
-                      Text(
-                        'Planifica tu viaje',
-                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: -0.5,
-                              color: themeNotifier.isDarkMode
-                                  ? Colors.white
-                                  : Colors.black,
-                            ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Calcula tiempo y distancia en segundos',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey.shade600,
-                          fontWeight: FontWeight.w300,
-                        ),
-                      ),
-                      const SizedBox(height: 60),
-
-                      // Punto de Origen con diseño mejorado
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: themeNotifier.isDarkMode
-                              ? Colors.grey.shade900
-                              : Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: themeNotifier.isDarkMode
-                                ? Colors.grey.shade800
-                                : Colors.grey.shade200,
-                          ),
-                        ),
+              Column(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                      child: Form(
+                        key: _formKey,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.green.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
+                            const SizedBox(height: 60),
+
+                            // Título principal
+                            Text(
+                              'Planifica tu viaje',
+                              style: Theme.of(context).textTheme.headlineMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: -0.5,
+                                    color: themeNotifier.isDarkMode
+                                        ? Colors.white
+                                        : Colors.black,
                                   ),
-                                  child: const Icon(
-                                    Icons.my_location,
-                                    color: Colors.green,
-                                    size: 20,
-                                  ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Calcula tiempo y distancia en segundos',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.grey.shade600,
+                                fontWeight: FontWeight.w300,
+                              ),
+                            ),
+                            const SizedBox(height: 60),
+
+                            // Punto de Origen con diseño mejorado
+                            Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                color: themeNotifier.isDarkMode
+                                    ? Colors.grey.shade900
+                                    : Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: themeNotifier.isDarkMode
+                                      ? Colors.grey.shade800
+                                      : Colors.grey.shade200,
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
                                     children: [
-                                      Text(
-                                        'ORIGEN',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          letterSpacing: 1,
-                                          color: Colors.grey.shade600,
-                                          fontWeight: FontWeight.w500,
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                        child: const Icon(
+                                          Icons.my_location,
+                                          color: Colors.green,
+                                          size: 20,
                                         ),
                                       ),
-                                      const SizedBox(height: 4),
-                                      if (_isLoadingLocation)
-                                        Row(
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
-                                            SizedBox(
-                                              width: 16,
-                                              height: 16,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                valueColor: AlwaysStoppedAnimation<Color>(
-                                                  themeNotifier.isDarkMode
+                                            Text(
+                                              'ORIGEN',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                letterSpacing: 1,
+                                                color: Colors.grey.shade600,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            if (_isLoadingLocation)
+                                              Row(
+                                                children: [
+                                                  SizedBox(
+                                                    width: 16,
+                                                    height: 16,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      valueColor:
+                                                          AlwaysStoppedAnimation<
+                                                            Color
+                                                          >(
+                                                            themeNotifier
+                                                                    .isDarkMode
+                                                                ? Colors.white
+                                                                : Colors.black,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 12),
+                                                  Text(
+                                                    'Obteniendo ubicación...',
+                                                    style: TextStyle(
+                                                      fontSize: 15,
+                                                      color:
+                                                          themeNotifier
+                                                              .isDarkMode
+                                                          ? Colors.white
+                                                          : Colors.black,
+                                                    ),
+                                                  ),
+                                                ],
+                                              )
+                                            else if (_currentPosition != null)
+                                              Text(
+                                                _currentLocationName ??
+                                                    'Tu ubicación actual',
+                                                style: TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.w500,
+                                                  color:
+                                                      themeNotifier.isDarkMode
                                                       ? Colors.white
                                                       : Colors.black,
                                                 ),
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
                                               ),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            Text(
-                                              'Obteniendo ubicación...',
-                                              style: TextStyle(
-                                                fontSize: 15,
-                                                color: themeNotifier.isDarkMode
-                                                    ? Colors.white
-                                                    : Colors.black,
-                                              ),
-                                            ),
                                           ],
-                                        )
-                                      else if (_currentPosition != null)
-                                        Text(
-                                          _currentLocationName ?? 'Tu ubicación actual',
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w500,
-                                            color: themeNotifier.isDarkMode
-                                                ? Colors.white
-                                                : Colors.black,
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 24),
-
-                      // Punto de Destino con diseño mejorado
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: themeNotifier.isDarkMode
-                              ? Colors.grey.shade900
-                              : Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: themeNotifier.isDarkMode
-                                ? Colors.grey.shade800
-                                : Colors.grey.shade200,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Icon(
-                                    Icons.location_on,
-                                    color: Colors.red,
-                                    size: 20,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'DESTINO',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          letterSpacing: 1,
-                                          color: Colors.grey.shade600,
-                                          fontWeight: FontWeight.w500,
                                         ),
                                       ),
                                     ],
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            TextFormField(
-                              controller: _destinationController,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                                color: themeNotifier.isDarkMode
-                                    ? Colors.white
-                                    : Colors.black,
+                                ],
                               ),
-                              decoration: InputDecoration(
-                                hintText: 'Ej: Madrid, Barcelona, París...',
-                                hintStyle: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.grey.shade500,
-                                  fontWeight: FontWeight.w400,
-                                ),
-                                border: InputBorder.none,
-                                contentPadding: EdgeInsets.zero,
-                              ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Por favor, ingresa un destino';
-                                }
-                                return null;
-                              },
                             ),
-                          ],
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 32),
 
-                      // Botón Calcular mejorado
-                      SizedBox(
-                        width: double.infinity,
-                        height: 56,
-                        child: ElevatedButton(
-                          onPressed: (_isLoading || _isLoadingLocation)
-                              ? null
-                              : _calculateRoute,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: themeNotifier.isDarkMode
-                                ? Colors.white
-                                : Colors.black,
-                            foregroundColor: themeNotifier.isDarkMode
-                                ? Colors.black
-                                : Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            disabledBackgroundColor: Colors.grey.shade400,
-                          ),
-                          child: _isLoading
-                              ? SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.5,
-                                    color: themeNotifier.isDarkMode
-                                        ? Colors.black
-                                        : Colors.white,
+                            const SizedBox(height: 24),
+
+                            // Punto de Destino con diseño mejorado
+                            Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                color: themeNotifier.isDarkMode
+                                    ? Colors.grey.shade900
+                                    : Colors.grey.shade50,
+                                borderRadius: BorderRadius.only(
+                                  topLeft: const Radius.circular(16),
+                                  topRight: const Radius.circular(16),
+                                  bottomLeft: _showRecentDestinations
+                                      ? Radius.zero
+                                      : const Radius.circular(16),
+                                  bottomRight: _showRecentDestinations
+                                      ? Radius.zero
+                                      : const Radius.circular(16),
+                                ),
+                                border: Border.all(
+                                  color: themeNotifier.isDarkMode
+                                      ? Colors.grey.shade800
+                                      : Colors.grey.shade200,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                        child: const Icon(
+                                          Icons.location_on,
+                                          color: Colors.red,
+                                          size: 20,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment
+                                                      .spaceBetween,
+                                              children: [
+                                                Text(
+                                                  'DESTINO',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    letterSpacing: 1,
+                                                    color: Colors.grey.shade600,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                                if (_recentDestinations
+                                                    .isNotEmpty)
+                                                  IconButton(
+                                                    onPressed: () {
+                                                      setState(() {
+                                                        _showRecentDestinations =
+                                                            !_showRecentDestinations;
+                                                      });
+                                                    },
+                                                    icon: Icon(
+                                                      _showRecentDestinations
+                                                          ? Icons.arrow_drop_up
+                                                          : Icons
+                                                                .arrow_drop_down,
+                                                      color:
+                                                          Colors.grey.shade600,
+                                                      size: 24,
+                                                    ),
+                                                    padding: EdgeInsets.zero,
+                                                    constraints:
+                                                        const BoxConstraints(),
+                                                  ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                )
-                              : Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(Icons.route, size: 20),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'Calcular ruta',
-                                      style: TextStyle(
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _destinationController,
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w500,
+                                      color: themeNotifier.isDarkMode
+                                          ? Colors.white
+                                          : Colors.black,
+                                    ),
+                                    decoration: InputDecoration(
+                                      hintText:
+                                          'Ej: Madrid, Barcelona, París...',
+                                      hintStyle: TextStyle(
                                         fontSize: 16,
-                                        fontWeight: FontWeight.w600,
-                                        letterSpacing: 0.5,
+                                        color: Colors.grey.shade500,
+                                        fontWeight: FontWeight.w400,
+                                      ),
+                                      border: InputBorder.none,
+                                      contentPadding: EdgeInsets.zero,
+                                    ),
+                                    validator: (value) {
+                                      if (value == null || value.isEmpty) {
+                                        return 'Por favor, ingresa un destino';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            // Mostrar destinos recientes
+                            _buildRecentDestinations(),
+
+                            const SizedBox(height: 32),
+
+                            // Botón Calcular mejorado
+                            SizedBox(
+                              width: double.infinity,
+                              height: 56,
+                              child: ElevatedButton(
+                                onPressed: (_isLoading || _isLoadingLocation)
+                                    ? null
+                                    : _calculateRoute,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: themeNotifier.isDarkMode
+                                      ? Colors.white
+                                      : Colors.black,
+                                  foregroundColor: themeNotifier.isDarkMode
+                                      ? Colors.black
+                                      : Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  disabledBackgroundColor: Colors.grey.shade400,
+                                ),
+                                child: _isLoading
+                                    ? SizedBox(
+                                        width: 24,
+                                        height: 24,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.5,
+                                          color: themeNotifier.isDarkMode
+                                              ? Colors.black
+                                              : Colors.white,
+                                        ),
+                                      )
+                                    : Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          const Icon(Icons.route, size: 20),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Calcular ruta',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w600,
+                                              letterSpacing: 0.5,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                              ),
+                            ),
+
+                            // Error mejorado
+                            if (_error != null) ...[
+                              const SizedBox(height: 24),
+                              Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Colors.red.withOpacity(0.3),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.error_outline,
+                                      color: Colors.red.shade700,
+                                      size: 22,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        _error!,
+                                        style: TextStyle(
+                                          color: Colors.red.shade700,
+                                          fontSize: 14,
+                                        ),
                                       ),
                                     ),
                                   ],
                                 ),
-                        ),
-                      ),
-
-                      // Error mejorado
-                      if (_error != null) ...[
-                        const SizedBox(height: 24),
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.red.withOpacity(0.3),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.error_outline,
-                                color: Colors.red.shade700,
-                                size: 22,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  _error!,
-                                  style: TextStyle(
-                                    color: Colors.red.shade700,
-                                    fontSize: 14,
-                                  ),
-                                ),
                               ),
                             ],
-                          ),
+
+                            const SizedBox(height: 40),
+                          ],
                         ),
-                      ],
-                      
-                      const SizedBox(height: 40),
-                    ],
+                      ),
+                    ),
                   ),
-                ),
+                ],
               )
             // Mapa ocupando toda la pantalla
             else
@@ -807,6 +1323,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                       _result = null;
                       _isPlaying = false;
                       _cancelNotification();
+                      _showRecentDestinations = false;
                     });
                   },
                   backgroundColor: themeNotifier.isDarkMode
