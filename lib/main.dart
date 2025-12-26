@@ -9,22 +9,83 @@ import 'global_routes_page.dart';
 import 'package:provider/provider.dart';
 import 'user_profile_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'components/main/recent_destinations.dart';
+import 'components/main/map_picker.dart';
+import 'dart:async';
+
+class RouteOption {
+  final String id;
+  final String name;
+  final double distance; // en km
+  final double duration; // en minutos
+  final List<LatLng> points;
+  final bool hasToll;
+  final double estimatedCost;
+  final String difficulty;
+  final String description;
+
+  RouteOption({
+    required this.id,
+    required this.name,
+    required this.distance,
+    required this.duration,
+    required this.points,
+    required this.hasToll,
+    this.estimatedCost = 0.0,
+    this.difficulty = 'Media',
+    this.description = '',
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'distance': distance,
+      'duration': duration,
+      'hasToll': hasToll,
+      'estimatedCost': estimatedCost,
+      'difficulty': difficulty,
+      'description': description,
+    };
+  }
+
+  factory RouteOption.fromMap(Map<String, dynamic> map, List<LatLng> points) {
+    return RouteOption(
+      id: map['id'] ?? UniqueKey().toString(),
+      name: map['name'] ?? 'Ruta',
+      distance: (map['distance'] ?? 0).toDouble(),
+      duration: (map['duration'] ?? 0).toDouble(),
+      points: points,
+      hasToll: map['hasToll'] ?? false,
+      estimatedCost: (map['estimatedCost'] ?? 0).toDouble(),
+      difficulty: map['difficulty'] ?? 'Media',
+      description: map['description'] ?? '',
+    );
+  }
+}
 
 class RecentDestination {
   final String name;
   final double latitude;
   final double longitude;
   double? distanceFromCurrent;
+  final String? address;
 
   RecentDestination({
     required this.name,
     required this.latitude,
     required this.longitude,
     this.distanceFromCurrent,
+    this.address,
   });
 
   Map<String, dynamic> toMap() {
-    return {'name': name, 'latitude': latitude, 'longitude': longitude};
+    return {
+      'name': name,
+      'latitude': latitude,
+      'longitude': longitude,
+      'address': address,
+    };
   }
 
   factory RecentDestination.fromMap(Map<String, dynamic> map) {
@@ -32,6 +93,7 @@ class RecentDestination {
       name: map['name'],
       latitude: map['latitude'],
       longitude: map['longitude'],
+      address: map['address'],
     );
   }
 }
@@ -55,8 +117,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
   bool _isLoadingLocation = true;
   bool _isPlaying = false;
   bool _showRecentDestinations = false;
-  Map<String, dynamic>? _result;
-  List<LatLng>? _routePoints;
   String? _error;
   Position? _currentPosition;
   String? _currentLocationName;
@@ -64,8 +124,18 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
   List<RecentDestination> _recentDestinations = [];
   RecentDestination? _destinationToEdit;
 
+  List<RouteOption> _routeOptions = [];
+  RouteOption? _selectedRoute;
+  bool _showRouteOptions = false;
+
   static const String _recentDestinationsKey = 'recent_destinations';
   static const int _maxRecentDestinations = 5;
+
+  // Variables para el cronómetro
+  bool _isStopwatchRunning = false;
+  Duration _elapsedTime = Duration.zero;
+  Timer? _stopwatchTimer;
+  DateTime? _stopwatchStartTime;
 
   @override
   void initState() {
@@ -82,7 +152,17 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     const initializationSettings = InitializationSettings(
       android: androidSettings,
     );
-    await _flutterLocalNotificationsPlugin.initialize(initializationSettings);
+    await _flutterLocalNotificationsPlugin.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse: (notificationResponse) {
+        // Manejar clic en notificación
+        if (notificationResponse.payload == 'start_stopwatch') {
+          _startStopwatchFromNotification();
+        } else if (notificationResponse.payload == 'stop_stopwatch') {
+          _stopStopwatchFromNotification();
+        }
+      },
+    );
 
     await _requestNotificationPermission();
   }
@@ -99,7 +179,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     }
   }
 
-  Future<void> _showNotification() async {
+  Future<void> _showRouteNotification() async {
     const androidDetails = AndroidNotificationDetails(
       'route_channel_id',
       'Ruta Activa',
@@ -121,7 +201,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     );
   }
 
-  Future<void> _cancelNotification() async {
+  Future<void> _cancelRouteNotification() async {
     await _flutterLocalNotificationsPlugin.cancel(0);
   }
 
@@ -129,11 +209,11 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
   void dispose() {
     _destinationController.dispose();
     _editDestinationController.dispose();
-    _cancelNotification();
+    _cancelRouteNotification();
+    _stopStopwatch();
     super.dispose();
   }
 
-  // Guardar destinos recientes en SharedPreferences
   Future<void> _saveRecentDestinations() async {
     final prefs = await SharedPreferences.getInstance();
     final destinationsJson = _recentDestinations
@@ -142,7 +222,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     await prefs.setStringList(_recentDestinationsKey, destinationsJson);
   }
 
-  // Cargar destinos recientes desde SharedPreferences
   Future<void> _loadRecentDestinations() async {
     final prefs = await SharedPreferences.getInstance();
     final destinationsJson = prefs.getStringList(_recentDestinationsKey) ?? [];
@@ -157,13 +236,11 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     });
   }
 
-  // Añadir un nuevo destino a la lista de recientes
   Future<void> _addRecentDestination(
     String name,
     double lat,
     double lon,
   ) async {
-    // Verificar si ya existe un destino con el mismo nombre o coordenadas
     final existingIndex = _recentDestinations.indexWhere(
       (dest) =>
           dest.name.toLowerCase() == name.toLowerCase() ||
@@ -171,11 +248,9 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     );
 
     if (existingIndex != -1) {
-      // Mover al principio si ya existe
       final existing = _recentDestinations.removeAt(existingIndex);
       _recentDestinations.insert(0, existing);
     } else {
-      // Añadir nuevo destino al principio
       final newDestination = RecentDestination(
         name: name,
         latitude: lat,
@@ -183,7 +258,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
       );
       _recentDestinations.insert(0, newDestination);
 
-      // Limitar el número de destinos recientes
       if (_recentDestinations.length > _maxRecentDestinations) {
         _recentDestinations = _recentDestinations.sublist(
           0,
@@ -196,7 +270,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     await _calculateDistancesForRecentDestinations();
   }
 
-  // Eliminar un destino reciente
   Future<void> _removeRecentDestination(int index) async {
     setState(() {
       _recentDestinations.removeAt(index);
@@ -204,7 +277,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     await _saveRecentDestinations();
   }
 
-  // Renombrar un destino reciente
   Future<void> _renameRecentDestination(int index, String newName) async {
     if (newName.trim().isEmpty) return;
 
@@ -219,7 +291,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     await _saveRecentDestinations();
   }
 
-  // Calcular distancias desde la ubicación actual para todos los destinos recientes
   Future<void> _calculateDistancesForRecentDestinations() async {
     if (_currentPosition == null) return;
 
@@ -236,14 +307,13 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
         name: dest.name,
         latitude: dest.latitude,
         longitude: dest.longitude,
-        distanceFromCurrent: distanceInMeters / 1000, // Convertir a kilómetros
+        distanceFromCurrent: distanceInMeters / 1000,
       );
     }
 
     setState(() {});
   }
 
-  // Diálogo para editar nombre de destino
   void _showEditDestinationDialog(int index) {
     _editDestinationController.text = _recentDestinations[index].name;
     _destinationToEdit = _recentDestinations[index];
@@ -309,151 +379,24 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     );
   }
 
-  // Widget para mostrar destinos recientes
   Widget _buildRecentDestinations() {
-    final themeNotifier = Provider.of<ThemeNotifier>(context);
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      height: _showRecentDestinations ? 200 : 0,
-      child: SingleChildScrollView(
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: themeNotifier.isDarkMode
-                ? Colors.grey.shade900
-                : Colors.grey.shade50,
-            borderRadius: const BorderRadius.only(
-              bottomLeft: Radius.circular(16),
-              bottomRight: Radius.circular(16),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Destinos recientes',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: themeNotifier.isDarkMode
-                          ? Colors.white
-                          : Colors.black,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () {
-                      setState(() {
-                        _showRecentDestinations = false;
-                      });
-                    },
-                    icon: const Icon(Icons.close, size: 20),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              if (_recentDestinations.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    'No hay destinos recientes',
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-                    textAlign: TextAlign.center,
-                  ),
-                )
-              else
-                ..._recentDestinations.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final destination = entry.value;
-                  return GestureDetector(
-                    onTap: () {
-                      _destinationController.text = destination.name;
-                      _calculateRouteFromDestination(destination);
-                    },
-                    child: Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: themeNotifier.isDarkMode
-                            ? Colors.grey.shade800
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: themeNotifier.isDarkMode
-                              ? Colors.grey.shade700
-                              : Colors.grey.shade200,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        destination.name,
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w500,
-                                          color: themeNotifier.isDarkMode
-                                              ? Colors.white
-                                              : Colors.black,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    IconButton(
-                                      onPressed: () =>
-                                          _showEditDestinationDialog(index),
-                                      icon: Icon(
-                                        Icons.edit,
-                                        size: 16,
-                                        color: Colors.grey.shade600,
-                                      ),
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(),
-                                    ),
-                                    IconButton(
-                                      onPressed: () =>
-                                          _removeRecentDestination(index),
-                                      icon: Icon(
-                                        Icons.delete,
-                                        size: 16,
-                                        color: Colors.red.shade600,
-                                      ),
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(),
-                                    ),
-                                  ],
-                                ),
-                                if (destination.distanceFromCurrent != null)
-                                  Text(
-                                    '${destination.distanceFromCurrent!.toStringAsFixed(1)} km desde tu ubicación',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-            ],
-          ),
-        ),
-      ),
+    return RecentDestinations(
+      showRecentDestinations: _showRecentDestinations,
+      recentDestinations: _recentDestinations,
+      onRemove: (index) {
+        if (index == -1) {
+          setState(() {
+            _showRecentDestinations = false;
+          });
+        } else {
+          _removeRecentDestination(index);
+        }
+      },
+      onRename: (index, name) => _showEditDestinationDialog(index),
+      onSelect: (destination) {
+        _destinationController.text = destination.name;
+        _calculateRouteFromDestination(destination);
+      },
     );
   }
 
@@ -472,7 +415,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
         final data = json.decode(response.body);
         final address = data['address'];
 
-        // Intentar obtener la ubicación más específica disponible
         if (address['road'] != null) {
           return address['road'];
         } else if (address['suburb'] != null) {
@@ -508,7 +450,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
         'Ubicación obtenida: Latitud ${position.latitude}, Longitud ${position.longitude}',
       );
 
-      // Obtener el nombre de la ubicación
       final locationName = await _getLocationName(
         position.latitude,
         position.longitude,
@@ -520,7 +461,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
         _isLoadingLocation = false;
       });
 
-      // Calcular distancias para destinos recientes
       await _calculateDistancesForRecentDestinations();
     } catch (e) {
       print('Error al obtener ubicación: $e');
@@ -584,6 +524,115 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     }
   }
 
+  Future<List<RouteOption>> _getMultipleRoutes(
+    double lat1,
+    double lon1,
+    double lat2,
+    double lon2,
+  ) async {
+    try {
+      final url = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/$lon1,$lat1;$lon2,$lat2?overview=full&geometries=geojson&alternatives=3',
+      );
+
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        if (data['code'] == 'Ok' &&
+            data['routes'] != null &&
+            data['routes'].isNotEmpty) {
+          final List<RouteOption> routes = [];
+
+          for (int i = 0; i < data['routes'].length; i++) {
+            final route = data['routes'][i];
+            final durationSeconds = route['duration'] as num;
+            final distanceMeters = route['distance'] as num;
+            final geometry = route['geometry'];
+
+            final List<LatLng> points = [];
+            if (geometry != null && geometry['coordinates'] != null) {
+              for (var coord in geometry['coordinates']) {
+                points.add(LatLng(coord[1], coord[0]));
+              }
+            }
+
+            final distanceKm = distanceMeters / 1000;
+            final durationMinutes = (durationSeconds / 60).roundToDouble();
+
+            final hasToll = i == 0 ? false : (i % 2 == 0);
+            final estimatedCost = hasToll
+                ? (distanceKm * 0.05).roundToDouble()
+                : 0.0;
+
+            final routeName = _generateRouteName(
+              i,
+              distanceKm,
+              durationMinutes,
+              hasToll,
+            );
+
+            final routeOption = RouteOption(
+              id: 'route_$i',
+              name: routeName,
+              distance: distanceKm,
+              duration: durationMinutes,
+              points: points,
+              hasToll: hasToll,
+              estimatedCost: estimatedCost,
+              difficulty: i == 0 ? 'Fácil' : (i == 1 ? 'Media' : 'Difícil'),
+              description: hasToll
+                  ? 'Ruta con peaje - Coste estimado: ${estimatedCost.toStringAsFixed(2)}€'
+                  : 'Ruta sin peaje',
+            );
+
+            routes.add(routeOption);
+          }
+
+          return routes;
+        } else {
+          throw Exception('No se pudo calcular las rutas');
+        }
+      } else {
+        throw Exception('Error HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error al obtener rutas múltiples: $e');
+      rethrow;
+    }
+  }
+
+  String _generateRouteName(
+    int index,
+    double distance,
+    double duration,
+    bool hasToll,
+  ) {
+    final List<String> routeTypes = [
+      'Más rápida',
+      'Más corta',
+      'Escénica',
+      'Equilibrada',
+    ];
+    final List<String> descriptors = [
+      'Directa',
+      'Alternativa',
+      'Panorámica',
+      'Económica',
+    ];
+
+    final type = index < routeTypes.length
+        ? routeTypes[index]
+        : 'Alternativa ${index + 1}';
+    final descriptor = index < descriptors.length
+        ? descriptors[index]
+        : 'Ruta ${index + 1}';
+    final tollIndicator = hasToll ? ' (con peaje)' : ' (sin peaje)';
+
+    return '$type - $descriptor$tollIndicator';
+  }
+
   Future<void> _calculateRoute() async {
     if (!_formKey.currentState!.validate()) return;
     if (_currentPosition == null) {
@@ -596,8 +645,9 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     setState(() {
       _isLoading = true;
       _error = null;
-      _result = null;
-      _routePoints = null;
+      _routeOptions.clear();
+      _selectedRoute = null;
+      _showRouteOptions = false;
     });
 
     try {
@@ -605,69 +655,31 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
         _destinationController.text,
       );
 
-      // Guardar como destino reciente
       await _addRecentDestination(
         _destinationController.text,
         destination['lat'],
         destination['lon'],
       );
 
-      final lat1 = _currentPosition!.latitude;
-      final lon1 = _currentPosition!.longitude;
-      final lat2 = destination['lat'];
-      final lon2 = destination['lon'];
-
-      final url = Uri.parse(
-        'https://router.project-osrm.org/route/v1/driving/$lon1,$lat1;$lon2,$lat2?overview=full&geometries=geojson',
+      final routes = await _getMultipleRoutes(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+        destination['lat'],
+        destination['lon'],
       );
 
-      final response = await http.get(url);
+      setState(() {
+        _routeOptions = routes;
+        _isLoading = false;
+        _showRouteOptions = true;
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-
-        if (data['code'] == 'Ok' &&
-            data['routes'] != null &&
-            data['routes'].isNotEmpty) {
-          final route = data['routes'][0];
-          final durationSeconds = route['duration'] as num;
-          final distanceMeters = route['distance'] as num;
-          final geometry = route['geometry'];
-
-          final hours = (durationSeconds / 3600).floor();
-          final minutes = ((durationSeconds % 3600) / 60).floor();
-          final distanceKm = distanceMeters / 1000;
-          final avgSpeed = (distanceKm / (durationSeconds / 3600));
-
-          final List<LatLng> points = [];
-          if (geometry != null && geometry['coordinates'] != null) {
-            for (var coord in geometry['coordinates']) {
-              points.add(LatLng(coord[1], coord[0]));
-            }
+        if (routes.isNotEmpty) {
+          _selectedRoute = routes[0];
+          if (routes[0].points.isNotEmpty) {
+            _fitBounds(routes[0].points);
           }
-
-          setState(() {
-            _result = {
-              'hours': hours,
-              'minutes': minutes,
-              'distance': distanceKm,
-              'avgSpeed': avgSpeed,
-            };
-            _routePoints = points;
-            _isLoading = false;
-          });
-
-          if (points.isNotEmpty) {
-            _fitBounds(points);
-          }
-        } else {
-          throw Exception(
-            'No se pudo calcular la ruta: ${data['message'] ?? "Sin mensaje"}',
-          );
         }
-      } else {
-        throw Exception('Error HTTP ${response.statusCode}');
-      }
+      });
     } catch (e) {
       setState(() {
         _error = 'Error: $e';
@@ -676,7 +688,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     }
   }
 
-  // Nueva función para calcular ruta desde un destino reciente
   Future<void> _calculateRouteFromDestination(
     RecentDestination destination,
   ) async {
@@ -685,68 +696,32 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     setState(() {
       _isLoading = true;
       _error = null;
-      _result = null;
-      _routePoints = null;
+      _routeOptions.clear();
+      _selectedRoute = null;
+      _showRouteOptions = false;
       _showRecentDestinations = false;
     });
 
     try {
-      final lat1 = _currentPosition!.latitude;
-      final lon1 = _currentPosition!.longitude;
-      final lat2 = destination.latitude;
-      final lon2 = destination.longitude;
-
-      final url = Uri.parse(
-        'https://router.project-osrm.org/route/v1/driving/$lon1,$lat1;$lon2,$lat2?overview=full&geometries=geojson',
+      final routes = await _getMultipleRoutes(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+        destination.latitude,
+        destination.longitude,
       );
 
-      final response = await http.get(url);
+      setState(() {
+        _routeOptions = routes;
+        _isLoading = false;
+        _showRouteOptions = true;
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-
-        if (data['code'] == 'Ok' &&
-            data['routes'] != null &&
-            data['routes'].isNotEmpty) {
-          final route = data['routes'][0];
-          final durationSeconds = route['duration'] as num;
-          final distanceMeters = route['distance'] as num;
-          final geometry = route['geometry'];
-
-          final hours = (durationSeconds / 3600).floor();
-          final minutes = ((durationSeconds % 3600) / 60).floor();
-          final distanceKm = distanceMeters / 1000;
-          final avgSpeed = (distanceKm / (durationSeconds / 3600));
-
-          final List<LatLng> points = [];
-          if (geometry != null && geometry['coordinates'] != null) {
-            for (var coord in geometry['coordinates']) {
-              points.add(LatLng(coord[1], coord[0]));
-            }
+        if (routes.isNotEmpty) {
+          _selectedRoute = routes[0];
+          if (routes[0].points.isNotEmpty) {
+            _fitBounds(routes[0].points);
           }
-
-          setState(() {
-            _result = {
-              'hours': hours,
-              'minutes': minutes,
-              'distance': distanceKm,
-              'avgSpeed': avgSpeed,
-            };
-            _routePoints = points;
-            _isLoading = false;
-          });
-
-          if (points.isNotEmpty) {
-            _fitBounds(points);
-          }
-        } else {
-          throw Exception(
-            'No se pudo calcular la ruta: ${data['message'] ?? "Sin mensaje"}',
-          );
         }
-      } else {
-        throw Exception('Error HTTP ${response.statusCode}');
-      }
+      });
     } catch (e) {
       setState(() {
         _error = 'Error: $e';
@@ -779,6 +754,442 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     });
   }
 
+  Widget _buildRouteOptionCard(RouteOption route, bool isSelected) {
+    final themeNotifier = Provider.of<ThemeNotifier>(context);
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedRoute = route;
+          _fitBounds(route.points);
+        });
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: themeNotifier.isDarkMode
+              ? isSelected
+                    ? Colors.blue.withOpacity(0.2)
+                    : Colors.grey.shade900
+              : isSelected
+              ? Colors.blue.withOpacity(0.1)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected
+                ? Colors.blue
+                : themeNotifier.isDarkMode
+                ? Colors.grey.shade800
+                : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            isSelected
+                                ? Icons.check_circle
+                                : Icons.circle_outlined,
+                            color: isSelected ? Colors.blue : Colors.grey,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              route.name,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: themeNotifier.isDarkMode
+                                    ? Colors.white
+                                    : Colors.black,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        route.description,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: themeNotifier.isDarkMode
+                              ? Colors.white.withOpacity(0.7)
+                              : Colors.black.withOpacity(0.6),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (route.hasToll)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.attach_money,
+                          size: 12,
+                          color: Colors.orange,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${route.estimatedCost.toStringAsFixed(2)}€',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.orange,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildInfoItem(
+                  Icons.schedule,
+                  '${route.duration.toStringAsFixed(0)} min',
+                  themeNotifier,
+                ),
+                _buildInfoItem(
+                  Icons.straighten,
+                  '${route.distance.toStringAsFixed(1)} km',
+                  themeNotifier,
+                ),
+                _buildInfoItem(Icons.terrain, route.difficulty, themeNotifier),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoItem(
+    IconData icon,
+    String text,
+    ThemeNotifier themeNotifier,
+  ) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 16,
+          color: themeNotifier.isDarkMode
+              ? Colors.white.withOpacity(0.6)
+              : Colors.black.withOpacity(0.5),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 13,
+            color: themeNotifier.isDarkMode
+                ? Colors.white.withOpacity(0.7)
+                : Colors.black.withOpacity(0.6),
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // FUNCIONES PARA EL CRONÓMETRO
+  void _startStopwatch() {
+    if (_isStopwatchRunning) return;
+
+    setState(() {
+      _isStopwatchRunning = true;
+      _stopwatchStartTime = DateTime.now().subtract(_elapsedTime);
+    });
+
+    _stopwatchTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        _elapsedTime = DateTime.now().difference(_stopwatchStartTime!);
+      });
+    });
+
+    // Mostrar notificación para poder detener el cronómetro desde fuera de la app
+    const androidDetails = AndroidNotificationDetails(
+      'stopwatch_channel',
+      'Cronómetro',
+      channelDescription: 'Cronómetro en segundo plano',
+      importance: Importance.high,
+      priority: Priority.high,
+      ongoing: true,
+      autoCancel: false,
+      playSound: false,
+      enableVibration: false,
+    );
+    const notificationDetails = NotificationDetails(android: androidDetails);
+
+    _flutterLocalNotificationsPlugin.show(
+      1,
+      '⏱️ Cronómetro en marcha',
+      'Pulsa para detener',
+      notificationDetails,
+      payload: 'stop_stopwatch',
+    );
+  }
+
+  void _stopStopwatch() {
+    if (!_isStopwatchRunning) return;
+
+    _stopwatchTimer?.cancel();
+    _stopwatchTimer = null;
+
+    setState(() {
+      _isStopwatchRunning = false;
+    });
+
+    // Cancelar la notificación
+    _flutterLocalNotificationsPlugin.cancel(1);
+
+    // Mostrar notificación de tiempo final
+    const androidDetails = AndroidNotificationDetails(
+      'stopwatch_channel',
+      'Cronómetro',
+      channelDescription: 'Cronómetro en segundo plano',
+      importance: Importance.high,
+      priority: Priority.high,
+      autoCancel: true,
+    );
+    const notificationDetails = NotificationDetails(android: androidDetails);
+
+    final hours = _elapsedTime.inHours;
+    final minutes = _elapsedTime.inMinutes.remainder(60);
+    final seconds = _elapsedTime.inSeconds.remainder(60);
+
+    _flutterLocalNotificationsPlugin.show(
+      2,
+      '⏱️ Cronómetro detenido',
+      'Tiempo: ${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}',
+      notificationDetails,
+    );
+  }
+
+  void _resetStopwatch() {
+    _stopStopwatch();
+    setState(() {
+      _elapsedTime = Duration.zero;
+    });
+  }
+
+  void _startStopwatchFromNotification() {
+    if (!_isStopwatchRunning) {
+      _startStopwatch();
+    }
+  }
+
+  void _stopStopwatchFromNotification() {
+    if (_isStopwatchRunning) {
+      _stopStopwatch();
+    }
+  }
+
+  Widget _buildStopwatchDisplay() {
+    final hours = _elapsedTime.inHours;
+    final minutes = _elapsedTime.inMinutes.remainder(60);
+    final seconds = _elapsedTime.inSeconds.remainder(60);
+
+    final themeNotifier = Provider.of<ThemeNotifier>(context);
+
+    return Positioned(
+      top: _selectedRoute != null ? 180 : 100,
+      left: 0,
+      right: 0,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: themeNotifier.isDarkMode
+                ? Colors.black.withOpacity(0.8)
+                : Colors.white.withOpacity(0.95),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Cronómetro',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: themeNotifier.isDarkMode
+                                ? Colors.white
+                                : Colors.black,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _isStopwatchRunning ? 'En marcha' : 'Detenido',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: themeNotifier.isDarkMode
+                                ? Colors.white.withOpacity(0.7)
+                                : Colors.black.withOpacity(0.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.timer,
+                    color: _isStopwatchRunning ? Colors.green : Colors.grey,
+                    size: 30,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: Text(
+                  '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}',
+                  style: TextStyle(
+                    fontSize: 36,
+                    fontWeight: FontWeight.bold,
+                    color: themeNotifier.isDarkMode
+                        ? Colors.white
+                        : Colors.black,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  ElevatedButton(
+                    onPressed: _isStopwatchRunning ? null : _startStopwatch,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      disabledBackgroundColor: Colors.green.withOpacity(0.3),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.play_arrow, size: 20),
+                        SizedBox(width: 8),
+                        Text('Iniciar'),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: _isStopwatchRunning ? _stopStopwatch : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      disabledBackgroundColor: Colors.red.withOpacity(0.3),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.stop, size: 20),
+                        SizedBox(width: 8),
+                        Text('Detener'),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: _resetStopwatch,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.replay, size: 20),
+                        SizedBox(width: 8),
+                        Text('Reiniciar'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStartStopwatchButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 56,
+      child: ElevatedButton(
+        onPressed: () {
+          if (_isStopwatchRunning) {
+            _stopStopwatch();
+          } else {
+            _startStopwatch();
+          }
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _isStopwatchRunning ? Colors.red : Colors.green,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(_isStopwatchRunning ? Icons.stop : Icons.play_arrow, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              _isStopwatchRunning ? 'Detener Cronómetro' : 'Iniciar Cronómetro',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeNotifier = Provider.of<ThemeNotifier>(context);
@@ -788,7 +1199,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
       body: SafeArea(
         child: Stack(
           children: [
-            if (_routePoints == null || _routePoints!.isEmpty)
+            if (_routeOptions.isEmpty || !_showRouteOptions)
               Column(
                 children: [
                   Expanded(
@@ -801,7 +1212,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                           children: [
                             const SizedBox(height: 60),
 
-                            // Título principal
                             Text(
                               'Planifica tu viaje',
                               style: Theme.of(context).textTheme.headlineMedium
@@ -813,18 +1223,8 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                                         : Colors.black,
                                   ),
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Calcula tiempo y distancia en segundos',
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.grey.shade600,
-                                fontWeight: FontWeight.w300,
-                              ),
-                            ),
                             const SizedBox(height: 60),
 
-                            // Punto de Origen con diseño mejorado
                             Container(
                               padding: const EdgeInsets.all(20),
                               decoration: BoxDecoration(
@@ -932,7 +1332,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
 
                             const SizedBox(height: 24),
 
-                            // Punto de Destino con diseño mejorado
                             Container(
                               padding: const EdgeInsets.all(20),
                               decoration: BoxDecoration(
@@ -1024,43 +1423,68 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                                     ],
                                   ),
                                   const SizedBox(height: 12),
-                                  TextFormField(
-                                    controller: _destinationController,
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w500,
-                                      color: themeNotifier.isDarkMode
-                                          ? Colors.white
-                                          : Colors.black,
-                                    ),
-                                    decoration: InputDecoration(
-                                      hintText:
-                                          'Ej: Madrid, Barcelona, París...',
-                                      hintStyle: TextStyle(
-                                        fontSize: 16,
-                                        color: Colors.grey.shade500,
-                                        fontWeight: FontWeight.w400,
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: TextFormField(
+                                          controller: _destinationController,
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w500,
+                                            color: themeNotifier.isDarkMode
+                                                ? Colors.white
+                                                : Colors.black,
+                                          ),
+                                          decoration: InputDecoration(
+                                            hintText:
+                                                'Ej: Madrid, Barcelona, París...',
+                                            hintStyle: TextStyle(
+                                              fontSize: 16,
+                                              color: Colors.grey.shade500,
+                                              fontWeight: FontWeight.w400,
+                                            ),
+                                            border: InputBorder.none,
+                                            contentPadding: EdgeInsets.zero,
+                                          ),
+                                          validator: (value) {
+                                            if (value == null ||
+                                                value.isEmpty) {
+                                              return 'Por favor, ingresa un destino';
+                                            }
+                                            return null;
+                                          },
+                                        ),
                                       ),
-                                      border: InputBorder.none,
-                                      contentPadding: EdgeInsets.zero,
-                                    ),
-                                    validator: (value) {
-                                      if (value == null || value.isEmpty) {
-                                        return 'Por favor, ingresa un destino';
-                                      }
-                                      return null;
-                                    },
+                                      const SizedBox(width: 8),
+                                      IconButton(
+                                        icon: const Icon(Icons.map),
+                                        onPressed: () async {
+                                          final LatLng?
+                                          pickedLocation = await Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (context) => MapPicker(
+                                                onLocationPicked:
+                                                    (location, address) {
+                                                      _destinationController
+                                                              .text =
+                                                          address;
+                                                    },
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
                             ),
 
-                            // Mostrar destinos recientes
                             _buildRecentDestinations(),
 
                             const SizedBox(height: 32),
 
-                            // Botón Calcular mejorado
                             SizedBox(
                               width: double.infinity,
                               height: 56,
@@ -1099,7 +1523,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                                           const Icon(Icons.route, size: 20),
                                           const SizedBox(width: 8),
                                           Text(
-                                            'Calcular ruta',
+                                            'Calcular rutas',
                                             style: TextStyle(
                                               fontSize: 16,
                                               fontWeight: FontWeight.w600,
@@ -1111,7 +1535,9 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                               ),
                             ),
 
-                            // Error mejorado
+                            const SizedBox(height: 16),
+                            _buildStartStopwatchButton(),
+
                             if (_error != null) ...[
                               const SizedBox(height: 24),
                               Container(
@@ -1153,14 +1579,14 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                   ),
                 ],
               )
-            // Mapa ocupando toda la pantalla
             else
               Stack(
                 children: [
                   FlutterMap(
                     mapController: _mapController,
                     options: MapOptions(
-                      initialCenter: _routePoints?.first ?? LatLng(0, 0),
+                      initialCenter:
+                          _selectedRoute?.points.first ?? LatLng(0, 0),
                       initialZoom: 13,
                     ),
                     children: [
@@ -1172,11 +1598,12 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                         userAgentPackageName: 'com.routecalculator.app',
                         retinaMode: RetinaMode.isHighDensity(context),
                       ),
-                      if (_routePoints != null && _routePoints!.isNotEmpty) ...[
+                      if (_selectedRoute != null &&
+                          _selectedRoute!.points.isNotEmpty) ...[
                         PolylineLayer(
                           polylines: [
                             Polyline(
-                              points: _routePoints!,
+                              points: _selectedRoute!.points,
                               strokeWidth: 4.0,
                               color: Colors.blue,
                             ),
@@ -1185,7 +1612,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                         MarkerLayer(
                           markers: [
                             Marker(
-                              point: _routePoints!.first,
+                              point: _selectedRoute!.points.first,
                               width: 40,
                               height: 40,
                               child: const Icon(
@@ -1195,7 +1622,7 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                               ),
                             ),
                             Marker(
-                              point: _routePoints!.last,
+                              point: _selectedRoute!.points.last,
                               width: 40,
                               height: 40,
                               child: const Icon(
@@ -1210,8 +1637,8 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                     ],
                   ),
 
-                  // Overlay con información en la parte superior
-                  if (_result != null)
+                  // Overlay con información de la ruta seleccionada
+                  if (_selectedRoute != null && !_showRouteOptions)
                     Positioned(
                       top: 16,
                       left: 16,
@@ -1236,70 +1663,101 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '${_result!['hours']}h ${_result!['minutes']}min',
-                                      style: TextStyle(
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.bold,
-                                        color: themeNotifier.isDarkMode
-                                            ? Colors.white
-                                            : Colors.black,
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _selectedRoute!.name,
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: themeNotifier.isDarkMode
+                                              ? Colors.white
+                                              : Colors.black,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                    ),
-                                    Text(
-                                      'Tiempo estimado',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade600,
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _selectedRoute!.description,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: themeNotifier.isDarkMode
+                                              ? Colors.white.withOpacity(0.7)
+                                              : Colors.black.withOpacity(0.6),
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
-
-                                // Botones de Play y Pause
+                                const SizedBox(width: 12),
                                 IconButton(
                                   onPressed: () {
                                     setState(() {
-                                      _isPlaying = !_isPlaying;
-                                      if (_isPlaying) {
-                                        _showNotification();
-                                      } else {
-                                        _cancelNotification();
-                                      }
+                                      _showRouteOptions = true;
                                     });
                                   },
                                   icon: Icon(
-                                    _isPlaying ? Icons.pause : Icons.play_arrow,
+                                    Icons.swap_horiz,
                                     color: themeNotifier.isDarkMode
                                         ? Colors.white
                                         : Colors.black,
                                   ),
                                 ),
-
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      '${_result!['distance'].toStringAsFixed(1)} km',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: themeNotifier.isDarkMode
-                                            ? Colors.white
-                                            : Colors.black,
-                                      ),
-                                    ),
-                                    Text(
-                                      '${_result!['avgSpeed'].toStringAsFixed(0)} km/h media',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade600,
-                                      ),
-                                    ),
-                                  ],
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                _buildRouteInfo(
+                                  Icons.schedule,
+                                  '${_selectedRoute!.duration.toStringAsFixed(0)} min',
+                                  themeNotifier,
+                                ),
+                                _buildRouteInfo(
+                                  Icons.straighten,
+                                  '${_selectedRoute!.distance.toStringAsFixed(1)} km',
+                                  themeNotifier,
+                                ),
+                                _buildRouteInfo(
+                                  Icons.terrain,
+                                  _selectedRoute!.difficulty,
+                                  themeNotifier,
+                                ),
+                                if (_selectedRoute!.hasToll)
+                                  _buildRouteInfo(
+                                    Icons.attach_money,
+                                    '${_selectedRoute!.estimatedCost.toStringAsFixed(2)}€',
+                                    themeNotifier,
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                IconButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      _isPlaying = !_isPlaying;
+                                      if (_isPlaying) {
+                                        _showRouteNotification();
+                                      } else {
+                                        _cancelRouteNotification();
+                                      }
+                                    });
+                                  },
+                                  icon: Icon(
+                                    _isPlaying ? Icons.pause : Icons.play_arrow,
+                                    color: Colors.blue,
+                                    size: 30,
+                                  ),
                                 ),
                               ],
                             ),
@@ -1310,19 +1768,48 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                 ],
               ),
 
+            // Panel de selección de rutas
+            if (_showRouteOptions && _routeOptions.isNotEmpty)
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: RouteOptionsPanel(
+                  routeOptions: _routeOptions,
+                  selectedRoute: _selectedRoute,
+                  isDarkMode: themeNotifier.isDarkMode,
+                  onRouteSelected: (route) {
+                    setState(() {
+                      _selectedRoute = route;
+                      _fitBounds(route.points);
+                    });
+                  },
+                  onConfirm: () {
+                    setState(() {
+                      _showRouteOptions = false;
+                    });
+                  },
+                  onBack: () {
+                    setState(() {
+                      _showRouteOptions = false;
+                    });
+                  },
+                ),
+              ),
+
             // Botón flotante para salir del mapa
-            if (_routePoints != null && _routePoints!.isNotEmpty)
+            if (_selectedRoute != null && !_showRouteOptions)
               Positioned(
                 bottom: 16,
                 right: 16,
                 child: FloatingActionButton(
                   onPressed: () {
-                    print('Saliendo del mapa y volviendo a la vista principal');
                     setState(() {
-                      _routePoints = null;
-                      _result = null;
+                      _routeOptions.clear();
+                      _selectedRoute = null;
+                      _showRouteOptions = false;
                       _isPlaying = false;
-                      _cancelNotification();
+                      _cancelRouteNotification();
                       _showRecentDestinations = false;
                     });
                   },
@@ -1337,6 +1824,25 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
                   ),
                 ),
               ),
+
+            // Botón para ver todas las rutas cuando hay una seleccionada
+            if (_selectedRoute != null && !_showRouteOptions)
+              Positioned(
+                bottom: 80,
+                right: 16,
+                child: FloatingActionButton(
+                  onPressed: () {
+                    setState(() {
+                      _showRouteOptions = true;
+                    });
+                  },
+                  backgroundColor: Colors.blue,
+                  child: const Icon(Icons.compare_arrows, color: Colors.white),
+                ),
+              ),
+
+            // MOSTRAR EL CRONÓMETRO SI ESTÁ EN MARCHA
+            if (_isStopwatchRunning) _buildStopwatchDisplay(),
 
             Align(
               alignment: Alignment.bottomLeft,
@@ -1421,6 +1927,296 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildRouteInfo(
+    IconData icon,
+    String text,
+    ThemeNotifier themeNotifier,
+  ) {
+    return Column(
+      children: [
+        Icon(
+          icon,
+          size: 20,
+          color: themeNotifier.isDarkMode
+              ? Colors.white.withOpacity(0.8)
+              : Colors.black.withOpacity(0.7),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: themeNotifier.isDarkMode
+                ? Colors.white.withOpacity(0.8)
+                : Colors.black.withOpacity(0.7),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class RouteOptionsPanel extends StatelessWidget {
+  final List<RouteOption> routeOptions;
+  final RouteOption? selectedRoute;
+  final bool isDarkMode;
+  final Function(RouteOption) onRouteSelected;
+  final VoidCallback onConfirm;
+  final VoidCallback onBack;
+
+  const RouteOptionsPanel({
+    Key? key,
+    required this.routeOptions,
+    required this.selectedRoute,
+    required this.isDarkMode,
+    required this.onRouteSelected,
+    required this.onConfirm,
+    required this.onBack,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 350,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDarkMode ? Colors.grey.shade900 : Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 20,
+            spreadRadius: -5,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                icon: Icon(
+                  Icons.arrow_back,
+                  color: isDarkMode ? Colors.white : Colors.black,
+                ),
+                onPressed: onBack,
+              ),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: isDarkMode
+                      ? Colors.white.withOpacity(0.3)
+                      : Colors.black.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 48),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Selecciona una ruta',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: isDarkMode ? Colors.white : Colors.black,
+                ),
+              ),
+              Text(
+                '${routeOptions.length} opciones',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDarkMode
+                      ? Colors.white.withOpacity(0.6)
+                      : Colors.black.withOpacity(0.5),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Toca una ruta para verla en el mapa',
+            style: TextStyle(
+              fontSize: 14,
+              color: isDarkMode
+                  ? Colors.white.withOpacity(0.5)
+                  : Colors.black.withOpacity(0.4),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: ListView.builder(
+              itemCount: routeOptions.length,
+              itemBuilder: (context, index) {
+                final route = routeOptions[index];
+                return GestureDetector(
+                  onTap: () => onRouteSelected(route),
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: isDarkMode
+                          ? selectedRoute?.id == route.id
+                                ? Colors.blue.withOpacity(0.2)
+                                : Colors.grey.shade900
+                          : selectedRoute?.id == route.id
+                          ? Colors.blue.withOpacity(0.1)
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: selectedRoute?.id == route.id
+                            ? Colors.blue
+                            : isDarkMode
+                            ? Colors.grey.shade800
+                            : Colors.grey.shade300,
+                        width: selectedRoute?.id == route.id ? 2 : 1,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    route.name,
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: isDarkMode
+                                          ? Colors.white
+                                          : Colors.black,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    route.description,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: isDarkMode
+                                          ? Colors.white.withOpacity(0.6)
+                                          : Colors.black.withOpacity(0.6),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (route.hasToll)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  'Peaje',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.orange,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            _buildInfoItem(
+                              Icons.schedule,
+                              '${route.duration.toStringAsFixed(0)} min',
+                              isDarkMode,
+                            ),
+                            _buildInfoItem(
+                              Icons.straighten,
+                              '${route.distance.toStringAsFixed(1)} km',
+                              isDarkMode,
+                            ),
+                            _buildInfoItem(
+                              Icons.terrain,
+                              route.difficulty,
+                              isDarkMode,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton(
+              onPressed: onConfirm,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text(
+                'Confirmar ruta seleccionada',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoItem(IconData icon, String text, bool isDarkMode) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 16,
+          color: isDarkMode
+              ? Colors.white.withOpacity(0.6)
+              : Colors.black.withOpacity(0.5),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 13,
+            color: isDarkMode
+                ? Colors.white.withOpacity(0.7)
+                : Colors.black.withOpacity(0.6),
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 }
