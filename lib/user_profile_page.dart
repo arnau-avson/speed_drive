@@ -95,7 +95,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Configuración de Seguridad',
+                      'Configuración',
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w700,
@@ -136,6 +136,14 @@ class _UserProfilePageState extends State<UserProfilePage> {
                       subtitle: '••••••••',
                       isDark: isDark,
                       onTap: () => _showPasswordDialog(context, isDark),
+                    ),
+                    const SizedBox(height: 12),
+                    _SecurityOption(
+                      icon: Icons.directions_car_rounded,
+                      title: 'Administrar mis coches',
+                      subtitle: 'Gestiona tus vehículos',
+                      isDark: isDark,
+                      onTap: () => _manageCars(context, isDark),
                     ),
                     const SizedBox(height: 24),
                   ],
@@ -323,13 +331,43 @@ class _UserProfilePageState extends State<UserProfilePage> {
     );
   }
 
+  void _manageCars(BuildContext context, bool isDark) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Administrar mis coches',
+          style: TextStyle(
+            color: isDark ? Colors.white : Colors.black,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: Text(
+          'Aquí puedes gestionar tus vehículos.',
+          style: TextStyle(color: isDark ? Colors.white60 : Colors.black54),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cerrar',
+              style: TextStyle(color: isDark ? Colors.white60 : Colors.black54),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeNotifier = Provider.of<ThemeNotifier>(context);
     final isDark = themeNotifier.isDarkMode;
 
     return DefaultTabController(
-      length: 3,
+      length: 1,
       child: Scaffold(
         backgroundColor: isDark ? Colors.black : Colors.white,
         body: NestedScrollView(
@@ -349,134 +387,143 @@ class _UserProfilePageState extends State<UserProfilePage> {
                   ),
                 ],
                 flexibleSpace: FlexibleSpaceBar(
-                  background: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  background: Stack(
                     children: [
-                      const SizedBox(height: 50),
-                      Stack(
-                        children: [
-                          Container(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF4A90E2), Color(0xFF5BA3F5)],
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(
-                                    0xFF4A90E2,
-                                  ).withOpacity(0.4),
-                                  blurRadius: 20,
-                                  offset: const Offset(0, 8),
-                                ),
+                      // Banner de fondo azul
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: 100,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                const Color(0xFF4A90E2),
+                                const Color(0xFF5BA3F5),
                               ],
                             ),
-                            child: const CircleAvatar(
-                              radius: 50,
-                              backgroundColor: Colors.transparent,
-                              child: Icon(
-                                Icons.person,
-                                size: 50,
-                                color: Colors.white,
-                              ),
-                            ),
                           ),
-                          Positioned(
-                            bottom: 0,
-                            right: 0,
-                            child: GestureDetector(
-                              onTap: () =>
-                                  _showEditProfileDialog(context, isDark),
-                              child: Container(
-                                padding: const EdgeInsets.all(6),
+                        ),
+                      ),
+                      // Contenido del perfil
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Stack(
+                            children: [
+                              Container(
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF4A90E2),
                                   shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: isDark ? Colors.black : Colors.white,
-                                    width: 2.5,
+                                  gradient: const LinearGradient(
+                                    colors: [
+                                      Color(0xFF4A90E2),
+                                      Color(0xFF5BA3F5),
+                                    ],
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(
+                                        0xFF4A90E2,
+                                      ).withOpacity(0.4),
+                                      blurRadius: 20,
+                                      offset: const Offset(0, 8),
+                                    ),
+                                  ],
+                                ),
+                                child: const CircleAvatar(
+                                  radius: 50,
+                                  backgroundColor: Colors.transparent,
+                                  child: Icon(
+                                    Icons.person,
+                                    size: 50,
+                                    color: Colors.white,
                                   ),
                                 ),
-                                child: const Icon(
-                                  Icons.edit,
-                                  size: 16,
-                                  color: Colors.white,
+                              ),
+                              Positioned(
+                                bottom: 0,
+                                right: 0,
+                                child: GestureDetector(
+                                  onTap: () =>
+                                      _showEditProfileDialog(context, isDark),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF4A90E2),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: isDark
+                                            ? Colors.black
+                                            : Colors.white,
+                                        width: 2.5,
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.edit,
+                                      size: 16,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
+                            ],
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Column(
-                        children: [
-                          Text(
-                            'Juan Pérez',
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
-                              color: isDark ? Colors.white : Colors.black,
-                              letterSpacing: -0.5,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            '@juanperez',
-                            style: TextStyle(
-                              fontSize: 15,
-                              color: isDark ? Colors.white60 : Colors.black54,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 40),
-                            child: Text(
-                              'Amante del ciclismo y las rutas al aire libre',
-                              textAlign: TextAlign.center,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.7)
-                                    : Colors.black.withOpacity(0.6),
-                                height: 1.3,
+                          const SizedBox(height: 12),
+                          Column(
+                            children: [
+                              Text(
+                                'Juan Pérez',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark ? Colors.white : Colors.black,
+                                  letterSpacing: -0.5,
+                                ),
                               ),
-                            ),
+                              const SizedBox(height: 3),
+                              Text(
+                                '@juanperez',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  color: isDark
+                                      ? Colors.white60
+                                      : Colors.black54,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 40,
+                                ),
+                                child: Text(
+                                  'Amante del ciclismo y las rutas al aire libre',
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: isDark
+                                        ? Colors.white.withOpacity(0.7)
+                                        : Colors.black.withOpacity(0.6),
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                     ],
                   ),
                 ),
-                bottom: TabBar(
-                  indicatorColor: const Color(0xFF4A90E2),
-                  indicatorWeight: 3,
-                  labelColor: isDark ? Colors.white : Colors.black,
-                  unselectedLabelColor: isDark
-                      ? Colors.white60
-                      : Colors.black54,
-                  labelStyle: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                  tabs: const [
-                    Tab(text: 'Rutas'),
-                    Tab(text: 'Seguidores'),
-                    Tab(text: 'Siguiendo'),
-                  ],
-                ),
               ),
             ];
           },
-          body: TabBarView(
-            children: [
-              _RoutesTab(isDark: isDark),
-              _FollowersTab(isDark: isDark, isFollowing: false),
-              _FollowersTab(isDark: isDark, isFollowing: true),
-            ],
-          ),
+          body: TabBarView(children: [_RoutesTab(isDark: isDark)]),
         ),
       ),
     );
