@@ -143,7 +143,7 @@ class CustomBottomNavigationBar extends StatelessWidget {
           onTap: onPressed,
           borderRadius: BorderRadius.circular(30),
           child: const Center(
-            child: Icon(Icons.directions_car, color: Colors.white, size: 30),
+            child: Icon(Icons.play_arrow, color: Colors.white, size: 40),
           ),
         ),
       ),

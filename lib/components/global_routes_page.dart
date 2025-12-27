@@ -45,7 +45,7 @@ class _GlobalRoutesPageState extends State<GlobalRoutesPage> {
       duration: '1:15:30',
       avgSpeed: 14.7,
       maxSpeed: 32.5,
-      difficulty: 'Media',
+      routeType: 'Carretera', // Cambiado a tipo de ruta
       startPoint: LatLng(41.3851, 2.1734), // Barcelona
       routePoints: [
         LatLng(41.3851, 2.1734),
@@ -65,7 +65,7 @@ class _GlobalRoutesPageState extends State<GlobalRoutesPage> {
       duration: '52:15',
       avgSpeed: 14.1,
       maxSpeed: 28.0,
-      difficulty: 'Fácil',
+      routeType: 'Carretera', // Cambiado a tipo de ruta
       startPoint: LatLng(41.3900, 2.1600),
       routePoints: [
         LatLng(41.3900, 2.1600),
@@ -85,7 +85,7 @@ class _GlobalRoutesPageState extends State<GlobalRoutesPage> {
       duration: '2:45:00',
       avgSpeed: 12.9,
       maxSpeed: 48.3,
-      difficulty: 'Difícil',
+      routeType: 'Montaña', // Cambiado a tipo de ruta
       startPoint: LatLng(41.4200, 2.1500),
       routePoints: [
         LatLng(41.4200, 2.1500),
@@ -105,7 +105,7 @@ class _GlobalRoutesPageState extends State<GlobalRoutesPage> {
       duration: '38:20',
       avgSpeed: 13.9,
       maxSpeed: 25.5,
-      difficulty: 'Fácil',
+      routeType: 'Carretera', // Cambiado a tipo de ruta
       startPoint: LatLng(41.3750, 2.1650),
       routePoints: [
         LatLng(41.3750, 2.1650),
@@ -141,7 +141,6 @@ class _GlobalRoutesPageState extends State<GlobalRoutesPage> {
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
-
       ),
       body: Column(
         children: [
@@ -251,98 +250,108 @@ class _GlobalRoutesPageState extends State<GlobalRoutesPage> {
                     ],
                   ),
                 ),
-                // Likes
-                Row(
-                  children: [
-                    const Icon(Icons.thumb_up, color: Colors.blue, size: 18),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${route.likes}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
+                // Tipo de ruta
+                Text(
+                  route.routeType,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: Colors.green,
+                  ),
                 ),
               ],
             ),
           ),
           // Mapa interactivo de la ruta
-          Container(
-            height: 200,
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey[300]!),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: FlutterMap(
-                options: MapOptions(
-                  initialCenter: route.startPoint,
-                  initialZoom: 13.0,
-                  interactionOptions: const InteractionOptions(
-                    flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag,
+          GestureDetector(
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (context) => Dialog(
+                  child: SizedBox(
+                    height: 400,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: FlutterMap(
+                        options: MapOptions(
+                          initialCenter: route.startPoint,
+                          initialZoom: 13.0,
+                          interactionOptions: const InteractionOptions(
+                            flags: InteractiveFlag.all,
+                          ),
+                        ),
+                        children: [
+                          TileLayer(
+                            urlTemplate:
+                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            userAgentPackageName: 'com.example.speedcar',
+                          ),
+                          PolylineLayer(
+                            polylines: [
+                              Polyline(
+                                points: route.routePoints,
+                                color: Colors.blue,
+                                strokeWidth: 4.0,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-                children: [
-                  TileLayer(
-                    urlTemplate:
-                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'com.example.speedcar',
-                  ),
-                  // Línea de la ruta
-                  PolylineLayer(
-                    polylines: [
-                      Polyline(
-                        points: route.routePoints,
-                        strokeWidth: 4.0,
-                        color: Colors.blue,
-                      ),
-                    ],
-                  ),
-                  // Marcador de inicio
-                  MarkerLayer(
-                    markers: [
-                      Marker(
-                        point: route.routePoints.first,
-                        width: 40,
-                        height: 40,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.green,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 3),
-                          ),
-                          child: const Icon(
-                            Icons.flag,
-                            color: Colors.white,
-                            size: 20,
-                          ),
+              );
+            },
+            child: Container(
+              height: 150, // Altura reducida del mapa
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Stack(
+                  children: [
+                    FlutterMap(
+                      options: MapOptions(
+                        initialCenter: route.startPoint,
+                        initialZoom: 13.0,
+                        interactionOptions: const InteractionOptions(
+                          flags: InteractiveFlag.none, // Deshabilitar interacción
                         ),
                       ),
-                      // Marcador de fin
-                      Marker(
-                        point: route.routePoints.last,
-                        width: 40,
-                        height: 40,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 3),
-                          ),
-                          child: const Icon(
-                            Icons.flag_circle,
-                            color: Colors.white,
-                            size: 20,
-                          ),
+                      children: [
+                        TileLayer(
+                          urlTemplate:
+                              'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'com.example.speedcar',
+                        ),
+                        PolylineLayer(
+                          polylines: [
+                            Polyline(
+                              points: route.routePoints,
+                              color: Colors.blue,
+                              strokeWidth: 4.0,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    Container(
+                      color: Colors.black.withOpacity(0.3), // Filtro oscuro
+                    ),
+                    Center(
+                      child: Text(
+                        'Pulsa para interactuar',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -371,11 +380,11 @@ class _GlobalRoutesPageState extends State<GlobalRoutesPage> {
                         vertical: 5,
                       ),
                       decoration: BoxDecoration(
-                        color: _getDifficultyColor(route.difficulty),
+                        color: _getDifficultyColor(route.routeType),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        route.difficulty,
+                        route.routeType,
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 11,
@@ -466,14 +475,12 @@ class _GlobalRoutesPageState extends State<GlobalRoutesPage> {
     );
   }
 
-  Color _getDifficultyColor(String difficulty) {
-    switch (difficulty) {
-      case 'Fácil':
-        return Colors.green;
-      case 'Media':
-        return Colors.orange;
-      case 'Difícil':
-        return Colors.red;
+  Color _getDifficultyColor(String routeType) {
+    switch (routeType) {
+      case 'Carretera':
+        return Colors.blue;
+      case 'Montaña':
+        return Colors.brown;
       default:
         return Colors.grey;
     }
@@ -678,7 +685,7 @@ class _GlobalRoutesPageState extends State<GlobalRoutesPage> {
                 '${route.maxSpeed} km/h',
                 Icons.flash_on,
               ),
-              _buildDetailRow('Dificultad', route.difficulty, Icons.terrain),
+              _buildDetailRow('Tipo de ruta', route.routeType, Icons.terrain),
               const SizedBox(height: 24),
               ElevatedButton.icon(
                 onPressed: () {
@@ -744,7 +751,7 @@ class UserRoute {
   final String duration;
   final double avgSpeed;
   final double maxSpeed;
-  final String difficulty;
+  final String routeType; // Cambiado a tipo de ruta
   final LatLng startPoint;
   final List<LatLng> routePoints;
   final int likes;
@@ -758,7 +765,7 @@ class UserRoute {
     required this.duration,
     required this.avgSpeed,
     required this.maxSpeed,
-    required this.difficulty,
+    required this.routeType, // Cambiado a tipo de ruta
     required this.startPoint,
     required this.routePoints,
     required this.likes,
