@@ -370,6 +370,47 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
         ),
+        // Indicador de tiempo de recorrido y distancia
+        Positioned(
+          top: 84, // Debajo del indicador de señal GPS
+          left: MediaQuery.of(context).size.width * 0.1, // 10% de margen a cada lado
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.8, // 80% del ancho de la pantalla
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Tiempo: ${_getElapsedTime()}',
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                Text(
+                  'Distancia: ${_totalDistance.toStringAsFixed(2)} km',
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
         // Icono en el mapa en las coordenadas actuales
         if (_currentPosition != null)
           Positioned(
