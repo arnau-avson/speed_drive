@@ -109,11 +109,6 @@ class _MapScreenState extends State<MapScreen> {
         _isLoading = false;
       });
 
-      // Mover el mapa suavemente a la nueva posición
-      if (_mapController.camera.zoom >= 14) {
-        _mapController.move(_currentPosition!, _mapController.camera.zoom);
-      }
-
       print(
         '📍 Ubicación actualizada: ${position.latitude}, ${position.longitude}',
       );
@@ -129,7 +124,6 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // Primera carga (con loading)
   Future<void> _getCurrentLocation() async {
     setState(() {
       _isLoading = true;
@@ -224,18 +218,14 @@ class _MapScreenState extends State<MapScreen> {
   void _navigateToUserProfile() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => const UserProfilePage(),
-      ),
+      MaterialPageRoute(builder: (context) => const UserProfilePage()),
     );
   }
 
   void _navigateToGlobalRoutes() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => const GlobalRoutesPage(),
-      ),
+      MaterialPageRoute(builder: (context) => const GlobalRoutesPage()),
     );
   }
 
@@ -316,7 +306,9 @@ class _MapScreenState extends State<MapScreen> {
         FlutterMap(
           mapController: _mapController,
           options: MapOptions(
-            initialCenter: _currentPosition ?? LatLng(0, 0), // Fallback si _currentPosition es null
+            initialCenter:
+                _currentPosition ??
+                LatLng(0, 0), // Fallback si _currentPosition es null
             initialZoom: 16.0,
             minZoom: 3.0,
             maxZoom: 18.0,
@@ -335,9 +327,13 @@ class _MapScreenState extends State<MapScreen> {
         // Indicador de señal GPS centrado horizontalmente en la parte superior
         Positioned(
           top: 40,
-          left: MediaQuery.of(context).size.width * 0.1, // 10% de margen a cada lado
+          left:
+              MediaQuery.of(context).size.width *
+              0.1, // 10% de margen a cada lado
           child: Container(
-            width: MediaQuery.of(context).size.width * 0.8, // 80% del ancho de la pantalla
+            width:
+                MediaQuery.of(context).size.width *
+                0.8, // 80% del ancho de la pantalla
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: _hasGpsSignal ? Colors.green : Colors.red,
@@ -377,13 +373,13 @@ class _MapScreenState extends State<MapScreen> {
         // Icono en el mapa en las coordenadas actuales
         if (_currentPosition != null)
           Positioned(
-            top: MediaQuery.of(context).size.height * 0.5 - 24, // Centrado verticalmente
-            left: MediaQuery.of(context).size.width * 0.5 - 24, // Centrado horizontalmente
-            child: Icon(
-              Icons.location_on,
-              color: Colors.red,
-              size: 48,
-            ),
+            top:
+                MediaQuery.of(context).size.height * 0.5 -
+                24, // Centrado verticalmente
+            left:
+                MediaQuery.of(context).size.width * 0.5 -
+                24, // Centrado horizontalmente
+            child: Icon(Icons.location_on, color: Colors.red, size: 48),
           ),
         // Menú inferior flotante
         Align(
@@ -410,9 +406,7 @@ class UserProfilePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Perfil de Usuario'),
-      ),
+      appBar: AppBar(title: const Text('Perfil de Usuario')),
       body: Center(
         child: Text(
           'Aquí va la información del usuario',
@@ -429,9 +423,7 @@ class GlobalRoutesPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Rutas Globales'),
-      ),
+      appBar: AppBar(title: const Text('Rutas Globales')),
       body: Center(
         child: Text(
           'Aquí van las rutas globales',
