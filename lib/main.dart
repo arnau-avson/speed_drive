@@ -374,6 +374,17 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
         ),
+        // Icono en el mapa en las coordenadas actuales
+        if (_currentPosition != null)
+          Positioned(
+            top: MediaQuery.of(context).size.height * 0.5 - 24, // Centrado verticalmente
+            left: MediaQuery.of(context).size.width * 0.5 - 24, // Centrado horizontalmente
+            child: Icon(
+              Icons.location_on,
+              color: Colors.red,
+              size: 48,
+            ),
+          ),
         // Menú inferior flotante
         Align(
           alignment: Alignment.bottomCenter,
