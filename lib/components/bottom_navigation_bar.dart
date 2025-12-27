@@ -22,59 +22,61 @@ class CustomBottomNavigationBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
 
-    return Positioned(
-      bottom: 20,
-      left: screenWidth * 0.05, // 5% de margen en cada lado
-      right: screenWidth * 0.05,
-      child: Container(
-        height: 70,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(35),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.15),
-              blurRadius: 20,
-              offset: const Offset(0, 10),
-              spreadRadius: 2,
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20.0),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildNavButton(
-                icon: Icons.person_outline,
-                selectedIcon: Icons.person,
-                label: 'Perfil',
-                isSelected: selectedIndex == 0,
-                onPressed: onProfilePressed,
-              ),
-              _buildNavButton(
-                icon: Icons.map_outlined,
-                selectedIcon: Icons.map,
-                label: 'Rutas',
-                isSelected: selectedIndex == 1,
-                onPressed: onRoutesPressed,
-              ),
-              _buildCenterPlayButton(onPressed: onPlayPressed),
-              _buildNavButton(
-                icon: Icons.route_outlined,
-                selectedIcon: Icons.route,
-                label: 'Viajes',
-                isSelected: selectedIndex == 3,
-                onPressed: onPlayPressed,
-              ),
-              _buildNavButton(
-                icon: Icons.my_location_outlined,
-                selectedIcon: Icons.my_location,
-                label: 'Ubicar',
-                isSelected: selectedIndex == 4,
-                onPressed: onCenterPressed,
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 15), // Ajustar el margen inferior a 15
+        child: Container(
+          width: screenWidth * 0.95, // 95% del ancho de la pantalla
+          height: 70,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(35),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.15),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+                spreadRadius: 2,
               ),
             ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildNavButton(
+                  icon: Icons.person_outline,
+                  selectedIcon: Icons.person,
+                  label: 'Perfil',
+                  isSelected: selectedIndex == 0,
+                  onPressed: onProfilePressed,
+                ),
+                _buildNavButton(
+                  icon: Icons.map_outlined,
+                  selectedIcon: Icons.map,
+                  label: 'Rutas',
+                  isSelected: selectedIndex == 1,
+                  onPressed: onRoutesPressed,
+                ),
+                _buildCenterPlayButton(onPressed: onPlayPressed),
+                _buildNavButton(
+                  icon: Icons.route_outlined,
+                  selectedIcon: Icons.route,
+                  label: 'Viajes',
+                  isSelected: selectedIndex == 3,
+                  onPressed: onPlayPressed,
+                ),
+                _buildNavButton(
+                  icon: Icons.my_location_outlined,
+                  selectedIcon: Icons.my_location,
+                  label: 'Ubicar',
+                  isSelected: selectedIndex == 4,
+                  onPressed: onCenterPressed,
+                ),
+              ],
+            ),
           ),
         ),
       ),

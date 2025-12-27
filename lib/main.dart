@@ -217,12 +217,6 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: _buildBody(),
-      bottomNavigationBar: CustomBottomNavigationBar(
-        onProfilePressed: _navigateToUserProfile,
-        onRoutesPressed: _navigateToGlobalRoutes,
-        onPlayPressed: _onPlayPressed,
-        onCenterPressed: _centerOnLocation,
-      ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
     );
   }
@@ -318,10 +312,11 @@ class _MapScreenState extends State<MapScreen> {
     // Mapa con ubicación
     return Stack(
       children: [
+        // Mapa en el fondo
         FlutterMap(
           mapController: _mapController,
           options: MapOptions(
-            initialCenter: _currentPosition!,
+            initialCenter: _currentPosition ?? LatLng(0, 0), // Fallback si _currentPosition es null
             initialZoom: 16.0,
             minZoom: 3.0,
             maxZoom: 18.0,
@@ -337,140 +332,59 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ],
         ),
-        // Marcador de ubicación (centrado en el mapa)
-        Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _hasGpsSignal
-                      ? Colors.blue.withOpacity(0.2)
-                      : Colors.grey.withOpacity(0.2),
-                  border: Border.all(
-                    color: _hasGpsSignal ? Colors.blue : Colors.grey,
-                    width: 3,
-                  ),
-                ),
-                child: Icon(
-                  Icons.navigation,
-                  color: _hasGpsSignal ? Colors.blue : Colors.grey,
-                  size: 30,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: _hasGpsSignal ? Colors.black87 : Colors.grey,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  _hasGpsSignal ? 'Tu ubicación' : 'Sin señal',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        // Panel de información GPS
+        // Indicador de señal GPS centrado horizontalmente en la parte superior
         Positioned(
-          top: 50,
-          left: 16,
-          right: 16,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            padding: const EdgeInsets.all(12),
+          top: 40,
+          left: MediaQuery.of(context).size.width * 0.1, // 10% de margen a cada lado
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.8, // 80% del ancho de la pantalla
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: _hasGpsSignal ? Colors.green : Colors.red,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
                 ),
               ],
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  children: [
-                    Icon(
-                      _hasGpsSignal ? Icons.gps_fixed : Icons.gps_off,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      _hasGpsSignal
-                          ? 'Señal GPS obtenida'
-                          : 'Señal GPS no disponible',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
+                    shape: BoxShape.circle,
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _getElapsedTime(),
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const Text(
-                            'Duración',
-                            style: TextStyle(fontSize: 12, color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            '${_totalDistance.toStringAsFixed(2)} km',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const Text(
-                            'Distancia',
-                            style: TextStyle(fontSize: 12, color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    ],
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _hasGpsSignal ? 'Señal GPS activa' : 'Sin señal GPS',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
                   ),
                 ),
               ],
+            ),
+          ),
+        ),
+        // Menú inferior flotante
+        Align(
+          alignment: Alignment.bottomCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: CustomBottomNavigationBar(
+              onProfilePressed: _navigateToUserProfile,
+              onRoutesPressed: _navigateToGlobalRoutes,
+              onPlayPressed: _onPlayPressed,
+              onCenterPressed: _centerOnLocation,
+              selectedIndex: 0, // Cambiar según sea necesario
             ),
           ),
         ),
