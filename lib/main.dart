@@ -926,7 +926,6 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     );
   }
 
-  // FUNCIONES PARA EL CRONÓMETRO
   void _startStopwatch() {
     if (_isStopwatchRunning) return;
 
@@ -941,26 +940,31 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
       });
     });
 
-    // Mostrar notificación para poder detener el cronómetro desde fuera de la app
+    // Mostrar notificación con opción de DETENER
+    _showStopwatchRunningNotification();
+  }
+
+  Future<void> _showReadyToStartNotification() async {
     const androidDetails = AndroidNotificationDetails(
       'stopwatch_channel',
       'Cronómetro',
       channelDescription: 'Cronómetro en segundo plano',
       importance: Importance.high,
       priority: Priority.high,
-      ongoing: true,
+      ongoing: false,
       autoCancel: false,
-      playSound: false,
-      enableVibration: false,
+      playSound: true,
+      enableVibration: true,
+      visibility: NotificationVisibility.public,
     );
     const notificationDetails = NotificationDetails(android: androidDetails);
 
-    _flutterLocalNotificationsPlugin.show(
+    await _flutterLocalNotificationsPlugin.show(
       1,
-      '⏱️ Cronómetro en marcha',
-      'Pulsa para detener',
+      '⏱️ Cronómetro listo',
+      '¡Pulsa aquí para comenzar a contar!',
       notificationDetails,
-      payload: 'stop_stopwatch',
+      payload: 'start_stopwatch',
     );
   }
 
@@ -974,29 +978,62 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
       _isStopwatchRunning = false;
     });
 
-    // Cancelar la notificación
+    // Cancelar la notificación en curso
     _flutterLocalNotificationsPlugin.cancel(1);
 
-    // Mostrar notificación de tiempo final
+    // Mostrar notificación de tiempo final con opción de REINICIAR
+    _showStopwatchStoppedNotification();
+  }
+
+  Future<void> _showStopwatchRunningNotification() async {
     const androidDetails = AndroidNotificationDetails(
       'stopwatch_channel',
       'Cronómetro',
       channelDescription: 'Cronómetro en segundo plano',
       importance: Importance.high,
       priority: Priority.high,
-      autoCancel: true,
+      ongoing: true,
+      autoCancel: false,
+      playSound: false,
+      enableVibration: false,
+      visibility: NotificationVisibility.public,
     );
     const notificationDetails = NotificationDetails(android: androidDetails);
 
+    await _flutterLocalNotificationsPlugin.show(
+      1,
+      '⏱️ Cronómetro en marcha',
+      'Pulsa para detener el cronómetro',
+      notificationDetails,
+      payload: 'stop_stopwatch',
+    );
+  }
+
+  Future<void> _showStopwatchStoppedNotification() async {
     final hours = _elapsedTime.inHours;
     final minutes = _elapsedTime.inMinutes.remainder(60);
     final seconds = _elapsedTime.inSeconds.remainder(60);
 
-    _flutterLocalNotificationsPlugin.show(
+    const androidDetails = AndroidNotificationDetails(
+      'stopwatch_channel',
+      'Cronómetro',
+      channelDescription: 'Cronómetro en segundo plano',
+      importance: Importance.high,
+      priority: Priority.high,
+      ongoing: false,
+      autoCancel: true,
+      playSound: true,
+      enableVibration: true,
+      visibility: NotificationVisibility.public,
+    );
+    const notificationDetails = NotificationDetails(android: androidDetails);
+
+    await _flutterLocalNotificationsPlugin.show(
       2,
       '⏱️ Cronómetro detenido',
-      'Tiempo: ${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}',
+      'Tiempo: ${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')} - Pulsa para iniciar de nuevo',
       notificationDetails,
+      payload: 'start_stopwatch',
     );
   }
 
@@ -1005,6 +1042,10 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     setState(() {
       _elapsedTime = Duration.zero;
     });
+
+    // Cancelar todas las notificaciones del cronómetro
+    _flutterLocalNotificationsPlugin.cancel(1);
+    _flutterLocalNotificationsPlugin.cancel(2);
   }
 
   void _startStopwatchFromNotification() {
@@ -1156,39 +1197,58 @@ class _RouteCalculatorPageState extends State<RouteCalculatorPage> {
     );
   }
 
-  Widget _buildStartStopwatchButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 56,
-      child: ElevatedButton(
-        onPressed: () {
-          if (_isStopwatchRunning) {
-            _stopStopwatch();
-          } else {
-            _startStopwatch();
-          }
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _isStopwatchRunning ? Colors.red : Colors.green,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(_isStopwatchRunning ? Icons.stop : Icons.play_arrow, size: 20),
-            const SizedBox(width: 8),
-            Text(
-              _isStopwatchRunning ? 'Detener Cronómetro' : 'Iniciar Cronómetro',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+Widget _buildStartStopwatchButton() {
+  return SizedBox(
+    width: double.infinity,
+    height: 56,
+    child: ElevatedButton(
+      onPressed: () {
+        if (_isStopwatchRunning) {
+          _stopStopwatch();
+        } else {
+          // En lugar de iniciar directamente, mostramos la notificación
+          _showReadyToStartNotification();
+          
+          // Mostrar feedback al usuario
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Row(
+                children: [
+                  Icon(Icons.notifications_active, color: Colors.white),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text('Notificación enviada. Pulsa la notificación para iniciar el cronómetro'),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.blue,
+              duration: const Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
             ),
-          ],
+          );
+        }
+      },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _isStopwatchRunning ? Colors.red : Colors.green,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
         ),
       ),
-    );
-  }
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(_isStopwatchRunning ? Icons.stop : Icons.notification_add, size: 20),
+          const SizedBox(width: 8),
+          Text(
+            _isStopwatchRunning ? 'Detener Cronómetro' : 'Preparar Cronómetro',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
   @override
   Widget build(BuildContext context) {
