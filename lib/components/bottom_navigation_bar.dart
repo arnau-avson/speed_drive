@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 typedef NavigationCallback = void Function();
 
-class CustomBottomNavigationBar extends StatelessWidget {
+class CustomBottomNavigationBar extends StatefulWidget {
   final NavigationCallback onProfilePressed;
   final NavigationCallback onRoutesPressed;
   final NavigationCallback onPlayPressed;
@@ -19,18 +19,32 @@ class CustomBottomNavigationBar extends StatelessWidget {
   }) : super(key: key);
 
   @override
+  State<CustomBottomNavigationBar> createState() => _CustomBottomNavigationBarState();
+}
+
+class _CustomBottomNavigationBarState extends State<CustomBottomNavigationBar> {
+  bool _isPlayMode = false;
+
+  void _togglePlayMode() {
+    setState(() {
+      _isPlayMode = !_isPlayMode;
+    });
+    widget.onPlayPressed();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
 
     return Align(
       alignment: Alignment.bottomCenter,
       child: Padding(
-        padding: const EdgeInsets.only(bottom: 15), // Ajustar el margen inferior a 15
+        padding: const EdgeInsets.only(bottom: 15),
         child: Container(
-          width: screenWidth * 0.95, // 95% del ancho de la pantalla
+          width: screenWidth * 0.95,
           height: 70,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.8), // Fondo cristalizado
+            color: Colors.white.withOpacity(0.8),
             borderRadius: BorderRadius.circular(35),
             boxShadow: [
               BoxShadow(
@@ -45,37 +59,59 @@ class CustomBottomNavigationBar extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 20.0),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _buildNavButton(
-                  icon: Icons.person_outline,
-                  selectedIcon: Icons.person,
-                  label: 'Perfil',
-                  isSelected: selectedIndex == 0,
-                  onPressed: onProfilePressed,
-                ),
-                _buildNavButton(
-                  icon: Icons.map_outlined,
-                  selectedIcon: Icons.map,
-                  label: 'Rutas',
-                  isSelected: selectedIndex == 1,
-                  onPressed: onRoutesPressed,
-                ),
-                _buildCenterPlayButton(onPressed: onPlayPressed),
-                _buildNavButton(
-                  icon: Icons.route_outlined,
-                  selectedIcon: Icons.route,
-                  label: 'Viajes',
-                  isSelected: selectedIndex == 3,
-                  onPressed: onPlayPressed,
-                ),
-                _buildNavButton(
-                  icon: Icons.my_location_outlined,
-                  selectedIcon: Icons.my_location,
-                  label: 'Ubicar',
-                  isSelected: selectedIndex == 4,
-                  onPressed: onCenterPressed,
-                ),
-              ],
+              children: _isPlayMode
+                  ? [
+                      Expanded(
+                        child: _buildNavButton(
+                          icon: Icons.directions_car,
+                          selectedIcon: Icons.directions_car,
+                          label: 'Vehículo Carretera',
+                          isSelected: true,
+                          onPressed: () {},
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildNavButton(
+                          icon: Icons.sports_motorsports,
+                          selectedIcon: Icons.sports_motorsports,
+                          label: 'Vehículo Rally',
+                          isSelected: true,
+                          onPressed: () {},
+                        ),
+                      ),
+                      _buildCenterPlayButton(onPressed: _togglePlayMode),
+                    ]
+                  : [
+                      _buildNavButton(
+                        icon: Icons.person_outline,
+                        selectedIcon: Icons.person,
+                        label: 'Perfil',
+                        isSelected: widget.selectedIndex == 0,
+                        onPressed: widget.onProfilePressed,
+                      ),
+                      _buildNavButton(
+                        icon: Icons.map_outlined,
+                        selectedIcon: Icons.map,
+                        label: 'Rutas',
+                        isSelected: widget.selectedIndex == 1,
+                        onPressed: widget.onRoutesPressed,
+                      ),
+                      _buildCenterPlayButton(onPressed: _togglePlayMode),
+                      _buildNavButton(
+                        icon: Icons.route_outlined,
+                        selectedIcon: Icons.route,
+                        label: 'Viajes',
+                        isSelected: widget.selectedIndex == 3,
+                        onPressed: widget.onPlayPressed,
+                      ),
+                      _buildNavButton(
+                        icon: Icons.my_location_outlined,
+                        selectedIcon: Icons.my_location,
+                        label: 'Ubicar',
+                        isSelected: widget.selectedIndex == 4,
+                        onPressed: widget.onCenterPressed,
+                      ),
+                    ],
             ),
           ),
         ),
@@ -106,6 +142,8 @@ class CustomBottomNavigationBar extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               label,
+              overflow: TextOverflow.ellipsis, // Ajuste de texto con "..."
+              maxLines: 1,
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
@@ -142,8 +180,12 @@ class CustomBottomNavigationBar extends StatelessWidget {
         child: InkWell(
           onTap: onPressed,
           borderRadius: BorderRadius.circular(30),
-          child: const Center(
-            child: Icon(Icons.play_arrow, color: Colors.white, size: 40),
+          child: Center(
+            child: Icon(
+              _isPlayMode ? Icons.close : Icons.play_arrow, // Cambia entre cruz y play
+              color: Colors.white,
+              size: 40,
+            ),
           ),
         ),
       ),
