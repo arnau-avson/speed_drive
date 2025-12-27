@@ -4,6 +4,9 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'components/bottom_navigation_bar.dart';
+import 'components/status_indicators.dart';
+import 'dart:ui';
+import 'components/global_routes_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -324,91 +327,14 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ],
         ),
-        // Indicador de señal GPS centrado horizontalmente en la parte superior
+        // Indicadores de estado
         Positioned(
           top: 40,
-          left:
-              MediaQuery.of(context).size.width *
-              0.1, // 10% de margen a cada lado
-          child: Container(
-            width:
-                MediaQuery.of(context).size.width *
-                0.8, // 80% del ancho de la pantalla
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: _hasGpsSignal ? Colors.green : Colors.red,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  _hasGpsSignal ? 'Señal GPS activa' : 'Sin señal GPS',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        // Indicador de tiempo de recorrido y distancia
-        Positioned(
-          top: 84, // Debajo del indicador de señal GPS
-          left: MediaQuery.of(context).size.width * 0.1, // 10% de margen a cada lado
-          child: Container(
-            width: MediaQuery.of(context).size.width * 0.8, // 80% del ancho de la pantalla
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Tiempo: ${_getElapsedTime()}',
-                  style: const TextStyle(
-                    color: Colors.black,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-                Text(
-                  'Distancia: ${_totalDistance.toStringAsFixed(2)} km',
-                  style: const TextStyle(
-                    color: Colors.black,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
+          left: MediaQuery.of(context).size.width * 0.1,
+          child: StatusIndicators(
+            hasGpsSignal: _hasGpsSignal,
+            elapsedTime: _getElapsedTime(),
+            totalDistance: _totalDistance,
           ),
         ),
         // Icono en el mapa en las coordenadas actuales
@@ -451,23 +377,6 @@ class UserProfilePage extends StatelessWidget {
       body: Center(
         child: Text(
           'Aquí va la información del usuario',
-          style: TextStyle(fontSize: 18, color: Colors.grey[800]),
-        ),
-      ),
-    );
-  }
-}
-
-class GlobalRoutesPage extends StatelessWidget {
-  const GlobalRoutesPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Rutas Globales')),
-      body: Center(
-        child: Text(
-          'Aquí van las rutas globales',
           style: TextStyle(fontSize: 18, color: Colors.grey[800]),
         ),
       ),

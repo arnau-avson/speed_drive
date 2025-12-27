@@ -30,7 +30,7 @@ class CustomBottomNavigationBar extends StatelessWidget {
           width: screenWidth * 0.95, // 95% del ancho de la pantalla
           height: 70,
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Colors.white.withOpacity(0.8), // Fondo cristalizado
             borderRadius: BorderRadius.circular(35),
             boxShadow: [
               BoxShadow(
